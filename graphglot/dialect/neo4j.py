@@ -185,7 +185,7 @@ def _parse_exponential_function(parser: BaseParser) -> ast.ExponentialFunction:
     """
     if parser._match(TokenType.E):
         (_, _, _) = parser.seq(TokenType.E, TokenType.LEFT_PAREN, TokenType.RIGHT_PAREN)
-        return ast.ExponentialFunction(numeric_value_expression=_ONE.model_copy(deep=True))
+        return ast.ExponentialFunction(numeric_value_expression=_ONE.deep_copy())
 
     (_, _, numeric_value_expression, _) = parser.seq(
         TokenType.EXP,

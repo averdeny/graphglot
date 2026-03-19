@@ -2377,7 +2377,7 @@ class TestModulusOperator(unittest.TestCase):
                 found = True
                 return
             if isinstance(node, ast.Expression):
-                for child in node.__class__.model_fields:
+                for child in node.ast_fields:
                     val = getattr(node, child, None)
                     if val is not None:
                         if isinstance(val, list):

@@ -62,7 +62,7 @@ def with_to_next(tree: Expression) -> Expression:
             return block
 
         # Replace the CQE in its grandparent using __dict__ to bypass
-        # Pydantic validation (consistent with model_construct usage).
+        # Skip validation (consistent with _construct usage).
         key = cqe_parent._arg_key
         if key is None:  # pragma: no cover
             return block
@@ -100,7 +100,7 @@ def _rewrite_alqs(
             # If the WITH owns a WHERE clause, prepend a FilterStatement
             # to the next segment so it appears after the NEXT keyword.
             if stmt.where_clause is not None:
-                fs = ast.FilterStatement.model_construct(
+                fs = ast.FilterStatement._construct(
                     filter_statement=stmt.where_clause,
                 )
                 # Propagate span tokens from the WhereClause so that
@@ -145,7 +145,7 @@ def _rewrite_alqs(
     root_alqs = _build_alqs(segments[0], first_prs)
     root_cqe = _wrap_in_cqe(root_alqs)
 
-    return ast.StatementBlock.model_construct(
+    return ast.StatementBlock._construct(
         statement=root_cqe,
         list_next_statement=next_statements,
     )
@@ -153,14 +153,14 @@ def _rewrite_alqs(
 
 def _with_to_prs(with_stmt: CypherWithStatement) -> ast.PrimitiveResultStatement:
     """Convert a CypherWithStatement into a PrimitiveResultStatement."""
-    ret = ast.ReturnStatement.model_construct(
+    ret = ast.ReturnStatement._construct(
         return_statement_body=with_stmt.return_statement_body,
     )
-    ret_obps = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement.model_construct(
+    ret_obps = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement._construct(
         return_statement=ret,
         order_by_and_page_statement=with_stmt.order_by_and_page_statement,
     )
-    return ast.PrimitiveResultStatement.model_construct(
+    return ast.PrimitiveResultStatement._construct(
         primitive_result_statement=ret_obps,
     )
 
@@ -172,23 +172,23 @@ def _build_alqs(
     """Build an AmbientLinearQueryStatement from statements and a PRS."""
     slqs: ast.SimpleLinearQueryStatement | None = None
     if stmts:
-        slqs = ast.SimpleLinearQueryStatement.model_construct(
+        slqs = ast.SimpleLinearQueryStatement._construct(
             list_simple_query_statement=stmts,
         )
 
     slqs_prs = ast.AmbientLinearQueryStatement._SimpleLinearQueryStatementPrimitiveResultStatement
-    inner = slqs_prs.model_construct(
+    inner = slqs_prs._construct(
         simple_linear_query_statement=slqs,
         primitive_result_statement=prs,
     )
-    return ast.AmbientLinearQueryStatement.model_construct(
+    return ast.AmbientLinearQueryStatement._construct(
         ambient_linear_query_statement=inner,
     )
 
 
 def _wrap_in_cqe(alqs: ast.AmbientLinearQueryStatement) -> ast.CompositeQueryExpression:
     """Wrap an ALQS in a CompositeQueryExpression (Statement)."""
-    return ast.CompositeQueryExpression.model_construct(
+    return ast.CompositeQueryExpression._construct(
         left_composite_query_primary=alqs,
         query_conjunction_elements=None,
     )
@@ -197,7 +197,7 @@ def _wrap_in_cqe(alqs: ast.AmbientLinearQueryStatement) -> ast.CompositeQueryExp
 def _build_next_statement(alqs: ast.AmbientLinearQueryStatement) -> ast.NextStatement:
     """Build a NextStatement wrapping an ALQS."""
     cqe = _wrap_in_cqe(alqs)
-    return ast.NextStatement.model_construct(
+    return ast.NextStatement._construct(
         yield_clause=None,
         statement=cqe,
     )

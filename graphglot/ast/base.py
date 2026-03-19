@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+import copy
 import typing as t
 
 from collections import deque
-from functools import cached_property
-
-from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from graphglot.features import Feature, get_feature
 
@@ -14,9 +12,134 @@ if t.TYPE_CHECKING:
     from graphglot.lexer.token import Token as _Token
     from graphglot.typing.types import GqlType
 
+_SENTINEL = object()
+
+
+# ---------------------------------------------------------------------------
+# Shims: drop-in replacements for pydantic's Field and model_validator
+# ---------------------------------------------------------------------------
+
+
+class _FieldInfo:
+    """Stores default/constraints for an Expression field."""
+
+    __slots__ = ("default", "default_factory", "ge", "min_length")
+
+    def __init__(
+        self,
+        default: t.Any = _SENTINEL,
+        *,
+        ge: int | float | None = None,
+        min_length: int | None = None,
+        default_factory: t.Callable | None = None,
+    ):
+        self.default = default
+        self.default_factory = default_factory
+        self.ge = ge
+        self.min_length = min_length
+
+
+def field(
+    default: t.Any = _SENTINEL,
+    *,
+    ge: int | float | None = None,
+    min_length: int | None = None,
+    default_factory: t.Callable | None = None,
+) -> t.Any:
+    """Declare field constraints (shim for pydantic.Field)."""
+    return _FieldInfo(
+        default=default, ge=ge, min_length=min_length, default_factory=default_factory
+    )
+
+
+def model_validator(*, mode: str = "after"):
+    """Mark a method as a post-init validator (shim for pydantic.model_validator)."""
+
+    def decorator(fn):
+        fn.__is_post_init__ = True
+        return fn
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Introspection helpers used by __init_subclass__
+# ---------------------------------------------------------------------------
+
+
+def _is_classvar(annotation_str: str) -> bool:
+    """Check whether a stringified annotation is ClassVar[...]."""
+    # With `from __future__ import annotations`, ClassVar annotations are
+    # literally "ClassVar[...]" or "ClassVar".  Guard against types whose
+    # name merely *contains* "ClassVar" (e.g. "MyClassVarHelper").
+    s = annotation_str.strip()
+    return s == "ClassVar" or s.startswith("ClassVar[")
+
+
+def _annotation_allows_none(annotation_str: str) -> bool:
+    """Check whether a stringified annotation includes None as a union member.
+
+    With ``from __future__ import annotations`` the format is ``X | None``
+    or ``X | Y | None``.  A plain substring check would false-positive on
+    type names containing "None" (e.g. "NoneHandler"); split on ``|`` instead.
+    """
+    return any(part.strip() == "None" for part in annotation_str.split("|"))
+
+
+def _collect_fields(cls) -> tuple[tuple[str, ...], dict[str, _FieldInfo], dict[str, t.Any]]:
+    """Walk the MRO and collect declared AST field names, constraints, and defaults.
+
+    Returns (field_names, {name: Field}, {name: default_value}).
+    """
+    seen: dict[str, None] = {}  # ordered set
+    constraints: dict[str, _FieldInfo] = {}
+    defaults: dict[str, t.Any] = {}
+
+    for klass in reversed(cls.__mro__):
+        if klass is object or klass is Expression:
+            continue
+        for name, ann in klass.__dict__.get("__annotations__", {}).items():
+            if name.startswith("_") or _is_classvar(str(ann)):
+                continue
+            seen[name] = None
+
+            val = klass.__dict__.get(name, _SENTINEL)
+            if isinstance(val, _FieldInfo):
+                constraints[name] = val
+                # Precompute the Field's static default (not factory — that must run each time)
+                if val.default is not _SENTINEL:
+                    defaults[name] = val.default
+            elif val is not _SENTINEL:
+                # Explicit class-level default (e.g. `field: X | None = None`)
+                defaults[name] = val
+            elif name not in defaults and _annotation_allows_none(str(ann)):
+                # Implicit None default from `X | None` annotation
+                defaults[name] = None
+
+    return tuple(seen), constraints, defaults
+
+
+def _collect_validators(cls) -> tuple[t.Callable, ...]:
+    """Collect methods marked __is_post_init__ across MRO (parent-first)."""
+    seen_names: set[str] = set()
+    validators: list[t.Callable] = []
+    for klass in reversed(cls.__mro__):
+        if klass is object:
+            continue
+        for name, val in klass.__dict__.items():
+            if name not in seen_names and getattr(val, "__is_post_init__", False):
+                seen_names.add(name)
+                validators.append(val)
+    return tuple(validators)
+
+
+# ---------------------------------------------------------------------------
+# Macro helper
+# ---------------------------------------------------------------------------
+
 
 def _has_macro(data: dict) -> bool:
-    """Check if any value in data is a macro type (no imports needed)."""
+    """Check if any value in data is a macro type."""
     for v in data.values():
         if getattr(type(v), "__is_macro__", False):
             return True
@@ -27,22 +150,107 @@ def _has_macro(data: dict) -> bool:
     return False
 
 
-class Expression(BaseModel):
+# ---------------------------------------------------------------------------
+# Expression base class
+# ---------------------------------------------------------------------------
+
+
+class Expression:
     """Base class for all expressions in the AST."""
 
-    _required_features: set[Feature] = PrivateAttr(default_factory=set)
+    __ast_field_names__: t.ClassVar[tuple[str, ...]] = ()
+    __field_constraints__: t.ClassVar[dict[str, _FieldInfo]] = {}
+    __field_defaults__: t.ClassVar[dict[str, t.Any]] = {}
+    __post_init_validators__: t.ClassVar[tuple[t.Callable, ...]] = ()
 
-    # Private metadata for AST tracking
-    _parent: Expression | None = PrivateAttr(default=None)
-    _arg_key: str | None = PrivateAttr(default=None)
-    _index: int | None = PrivateAttr(default=None)
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.__ast_field_names__, cls.__field_constraints__, cls.__field_defaults__ = (
+            _collect_fields(cls)
+        )
+        cls.__post_init_validators__ = _collect_validators(cls)
 
-    # Type annotation (set by TypeAnnotator)
-    _resolved_type: GqlType | None = PrivateAttr(default=None)
+    # -- Private attribute defaults ------------------------------------------
 
-    # Source span tracking (set by @parses wrapper)
-    _start_token: _Token | None = PrivateAttr(default=None)
-    _end_token: _Token | None = PrivateAttr(default=None)
+    _required_features: set[Feature]
+    _parent: Expression | None
+    _arg_key: str | None
+    _index: int | None
+    _resolved_type: GqlType | None
+    _start_token: _Token | None
+    _end_token: _Token | None
+
+    def _init_private(self):
+        self._required_features = set()
+        self._parent = None
+        self._arg_key = None
+        self._index = None
+        self._resolved_type = None
+        self._start_token = None
+        self._end_token = None
+
+    # -- Construction --------------------------------------------------------
+
+    def __init__(self, **kwargs):
+        self._init_private()
+
+        macro_bypass = not getattr(self.__class__, "__is_macro__", False) and _has_macro(kwargs)
+        field_defaults = self.__class__.__field_defaults__
+        field_constraints = self.__class__.__field_constraints__
+
+        # Set fields from kwargs, applying precomputed defaults
+        for name in self.__ast_field_names__:
+            if name in kwargs:
+                self.__dict__[name] = kwargs[name]
+            elif name in field_defaults:
+                # Static default (including implicit None from `X | None`)
+                self.__dict__[name] = field_defaults[name]
+            else:
+                # Field with default_factory — must call each time
+                field = field_constraints.get(name)
+                if field is not None and field.default_factory is not None:
+                    self.__dict__[name] = field.default_factory()
+
+        if not macro_bypass:
+            # Validate Field constraints
+            for name, field in field_constraints.items():
+                val = self.__dict__.get(name)
+                if val is None:
+                    continue
+                if field.ge is not None and val < field.ge:
+                    raise ValueError(
+                        f"Input should be greater than or equal to {field.ge} [input_value={val!r}]"
+                    )
+                if field.min_length is not None and len(val) < field.min_length:
+                    raise ValueError(
+                        f"List should have at least {field.min_length} items after validation, "
+                        f"not {len(val)} [input_value={val!r}]"
+                    )
+            # Run post-init validators
+            for validator in self.__class__.__post_init_validators__:
+                validator(self)
+
+        # Set parent links
+        for k, v in kwargs.items():
+            self._set_parent(k, v)
+
+    @classmethod
+    def _construct(cls, **kwargs) -> t.Self:
+        """Create an instance without validation (replaces model_construct)."""
+        obj = object.__new__(cls)
+        obj._init_private()
+        field_defaults = cls.__field_defaults__
+        field_constraints = cls.__field_constraints__
+        for name in cls.__ast_field_names__:
+            if name in kwargs:
+                obj.__dict__[name] = kwargs[name]
+            elif name in field_defaults:
+                obj.__dict__[name] = field_defaults[name]
+            else:
+                field = field_constraints.get(name)
+                if field is not None and field.default_factory is not None:
+                    obj.__dict__[name] = field.default_factory()
+        return obj
 
     @property
     def source_span(self) -> tuple[int, int] | None:
@@ -51,25 +259,7 @@ class Expression(BaseModel):
             return (self._start_token.start, self._end_token.end + 1)
         return None
 
-    model_config = ConfigDict(
-        arbitrary_types_allowed=True, extra="forbid", validate_assignment=True
-    )
-
-    def __init__(self, **data):
-        if not getattr(self.__class__, "__is_macro__", False) and _has_macro(data):
-            constructed = self.__class__.model_construct(**data)
-            object.__setattr__(self, "__dict__", constructed.__dict__)
-            object.__setattr__(self, "__pydantic_fields_set__", constructed.__pydantic_fields_set__)
-            object.__setattr__(
-                self,
-                "__pydantic_extra__",
-                getattr(constructed, "__pydantic_extra__", None),
-            )
-            object.__setattr__(self, "__pydantic_private__", constructed.__pydantic_private__)
-        else:
-            super().__init__(**data)
-        for k, v in data.items():
-            self._set_parent(k, v)
+    # -- Feature tracking ----------------------------------------------------
 
     def require_feature(self, feature: Feature | str) -> None:
         """Require a feature to be enabled for the expression."""
@@ -80,14 +270,14 @@ class Expression(BaseModel):
     def get_required_features(self) -> set[Feature]:
         """Get the required features for the expression and all its children."""
         features = set(self._required_features)
-        # Recursively collect features from all child expressions
         for child in self.children():
             features.update(child.get_required_features())
         return features
 
+    # -- Parent tracking -----------------------------------------------------
+
     def _set_parent(self, key: str, value: t.Any) -> None:
         """Set up parent-child relationships for expressions in the AST."""
-
         if isinstance(value, Expression):
             value._parent = self
             value._arg_key = key
@@ -98,9 +288,11 @@ class Expression(BaseModel):
                     item._arg_key = key
                     item._index = i
 
-    @cached_property
-    def ast_fields(self) -> list[str]:
-        return [name for name in self.__annotations__ if not name.startswith("_")]
+    # -- Field introspection -------------------------------------------------
+
+    @property
+    def ast_fields(self) -> tuple[str, ...]:
+        return self.__ast_field_names__
 
     def set(self, key: str, value: t.Any, index: int | None = None) -> None:
         """Set an attribute and update parent-child links.
@@ -122,26 +314,19 @@ class Expression(BaseModel):
                 if isinstance(value, Expression):
                     value._index = index
                 return
-        current_val = getattr(self, key, None)
-        if getattr(type(value), "__is_macro__", False) or getattr(
-            type(current_val), "__is_macro__", False
-        ):
-            # Bypass Pydantic validation when placing a macro OR replacing one
-            self.__dict__[key] = value
-        else:
-            setattr(self, key, value)
+        self.__dict__[key] = value
         self._set_parent(key, value)
 
     def append(self, key: str, value: Expression) -> None:
         """Append a value to a list and update parent tracking."""
-
         current = getattr(self, key, None)
         if not isinstance(current, list):
             raise TypeError(f"'{key}' is not a list attribute.")
         current.append(value)
         self._set_parent(key, value)
-        # Set the index for the newly appended value
         value._index = len(current) - 1
+
+    # -- Traversal -----------------------------------------------------------
 
     def dfs(self, prune: t.Callable[[Expression], bool] | None = None) -> t.Iterator[Expression]:
         """Depth-first search (DFS) traversal of the expression tree.
@@ -169,7 +354,6 @@ class Expression(BaseModel):
         fn(node, *args, **kwargs) returns a replacement node, or None to remove.
         """
         root = None
-        # Use a mutable container so the lambda captures the container, not the value
         state: list[Expression | None] = [None]
 
         for node in (self.deep_copy() if copy else self).dfs(prune=lambda n: n is not state[0]):
@@ -186,7 +370,6 @@ class Expression(BaseModel):
 
     def bfs(self) -> t.Iterator[Expression]:
         """Breadth-first search (BFS) traversal of the expression tree."""
-
         queue = deque([self])
         while queue:
             node = queue.popleft()
@@ -195,8 +378,7 @@ class Expression(BaseModel):
 
     def children(self) -> t.Iterator[Expression]:
         """Yield all child expressions."""
-
-        for name in self.ast_fields:
+        for name in self.__ast_field_names__:
             value = getattr(self, name, None)
             if isinstance(value, Expression):
                 yield value
@@ -214,7 +396,6 @@ class Expression(BaseModel):
 
     def is_leaf(self) -> bool:
         """Check if the expression is a leaf node (has no children)."""
-
         return not any(True for _ in self.children())
 
     def deep_copy(self) -> Expression:
@@ -222,37 +403,26 @@ class Expression(BaseModel):
 
         The returned root has ``_parent=None`` even if called on a subtree node.
         """
-        copy = self.model_copy(deep=True)
-        # Pydantic's __deepcopy__ adds self to memo AFTER returning, so
-        # children's _parent back-references create ghost copies of the
-        # parent.  Rebuild all parent links from the copied tree structure.
-        copy._parent = None
-        copy._arg_key = None
-        copy._index = None
-        for node in copy.dfs():
-            for key in node.ast_fields:
+        c = copy.deepcopy(self)
+        c._parent = None
+        c._arg_key = None
+        c._index = None
+        for node in c.dfs():
+            for key in node.__ast_field_names__:
                 node._set_parent(key, getattr(node, key, None))
-        return copy
+        return c
+
+    # -- Representation & equality -------------------------------------------
 
     def __repr__(self):
         """Return a string representation of the expression."""
-
-        fields = ", ".join(
-            f"{k}={v!r}"
-            for k, v in self.__dict__.items()
-            if not (k.startswith("_") or k == "ast_fields")
-        )
+        fields = ", ".join(f"{k}={v!r}" for k, v in self.__dict__.items() if not k.startswith("_"))
         return f"{self.__class__.__name__}({fields})"
 
     def _macro_aware_dump(self) -> dict[str, t.Any]:
-        """Like model_dump(), but correctly serializes macro-bypassed fields.
-
-        Pydantic's model_dump() returns {} for fields set via model_construct
-        because the serialization schema doesn't know the runtime type.
-        This method walks ast_fields and recursively dumps Expression children.
-        """
+        """Recursively dump ast_fields to a dict."""
         result: dict[str, t.Any] = {}
-        for key in self.ast_fields:
+        for key in self.__ast_field_names__:
             value = getattr(self, key, None)
             if isinstance(value, Expression):
                 result[key] = value._macro_aware_dump()
@@ -271,30 +441,18 @@ class Expression(BaseModel):
             return NotImplemented
         return self._macro_aware_dump() == other._macro_aware_dump()
 
+    def __hash__(self):
+        return id(self)
+
     def to_gql(self, dialect: DialectType = None, **opts: t.Any) -> str:
-        """Convert the expression to a GQL string representation.
-
-        Args:
-            dialect: The dialect to use for GQL generation. If None, the default dialect is used.
-            **opts: Additional options for GQL generation.
-
-        Returns:
-            A string representing the GQL expression.
-        """
+        """Convert the expression to a GQL string representation."""
         from graphglot.dialect.base import Dialect
 
         return Dialect.get_or_raise(dialect).generate(self, **opts)
 
     def leaves(self, bfs: bool = True, include_self: bool = True) -> t.Iterator[Expression]:
-        """
-        Yield all leaf nodes (nodes with no Expression children) in this subtree.
-
-        Args:
-            bfs: If True, traverse breadth-first; otherwise depth-first.
-            include_self: If False, don't consider `self` as a candidate leaf.
-        """
+        """Yield all leaf nodes in this subtree."""
         traversal = self.bfs() if bfs else self.dfs()
-
         for node in traversal:
             if not include_self and node is self:
                 continue
@@ -339,10 +497,7 @@ def _enclosing_class(cls) -> type | None:
 
 
 def is_nonstandard(cls_or_instance) -> bool:
-    """Check if an AST class or instance is marked as non-standard.
-
-    Also returns True for inner classes of non-standard classes.
-    """
+    """Check if an AST class or instance is marked as non-standard."""
     cls = type(cls_or_instance) if isinstance(cls_or_instance, Expression) else cls_or_instance
     if hasattr(cls, "__nonstandard__"):
         return True
@@ -351,10 +506,7 @@ def is_nonstandard(cls_or_instance) -> bool:
 
 
 def nonstandard_reason(cls_or_instance) -> str | None:
-    """Return the non-standard reason string, or None for standard classes.
-
-    For inner classes, returns the enclosing class's reason.
-    """
+    """Return the non-standard reason string, or None for standard classes."""
     cls = type(cls_or_instance) if isinstance(cls_or_instance, Expression) else cls_or_instance
     reason = getattr(cls, "__nonstandard__", None)
     if reason is not None:

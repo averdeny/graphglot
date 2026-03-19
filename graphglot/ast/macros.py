@@ -7,9 +7,7 @@ macro-aware Expression.__init__ bypass.
 
 from __future__ import annotations
 
-from pydantic import Field
-
-from .base import Expression, nonstandard
+from .base import Expression, field, nonstandard
 
 
 @nonstandard("Macro extension: @name variable reference")
@@ -26,4 +24,4 @@ class MacroCall(Expression):
 
     __is_macro__ = True
     name: str
-    arguments: list[Expression] = Field(default_factory=list)
+    arguments: list[Expression] = field(default_factory=list)

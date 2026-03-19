@@ -15,11 +15,9 @@ from __future__ import annotations
 
 from enum import Enum, auto
 
-from pydantic import model_validator
-
 from graphglot import features as F
 
-from .base import Expression, nonstandard
+from .base import Expression, model_validator, nonstandard
 from .expressions import (
     BindingVariable,
     BindingVariableReference,
@@ -201,7 +199,7 @@ class ListComprehension(ListValueConstructorByEnumeration):
     """Cypher ``[variable IN source WHERE pred | expr]``.
 
     Inherits from :class:`ListValueConstructorByEnumeration` so that it fits
-    into the existing value-expression hierarchy (Pydantic union validation).
+    into the existing value-expression hierarchy.
 
     Example::
 

@@ -21,12 +21,12 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Software Development :: Compilers",
 ]
 dependencies = [
     "pyyaml>=6.0.2",
-    "pydantic>=2.6.1",
     "click>=8.1.8",
     "rich>=14.0.0",
 ]

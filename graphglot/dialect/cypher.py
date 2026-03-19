@@ -235,8 +235,8 @@ def _parse_unwind_statement(parser: BaseParser) -> ast.ForStatement:
     source = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.AS)
     var = parser.get_parser(ast.BindingVariable)(parser)
-    return ast.ForStatement.model_construct(
-        for_item=ast.ForItem.model_construct(
+    return ast.ForStatement._construct(
+        for_item=ast.ForItem._construct(
             for_item_alias=ast.ForItemAlias(binding_variable=var),
             for_item_source=source,
         ),
@@ -1208,7 +1208,7 @@ def _parse_cypher_core_cve(parser: BaseParser) -> ast.CommonValueExpression:
             # Property access on expression result: (expr).prop, expr[idx].prop, fn().prop
             parser._expect(TokenType.PERIOD)
             prop_ident = parser.get_parser(ast.Identifier)(parser)
-            prop_ref = ast.PropertyReference.model_construct(
+            prop_ref = ast.PropertyReference._construct(
                 property_source=result,
                 property_name=[ast.PropertyName(identifier=prop_ident)],
             )
@@ -1770,7 +1770,7 @@ def _parse_cypher_general_parameter_reference(
         num_text = parser._curr.text
         parser._advance()
         ident = ast.Identifier(name=num_text)
-        return ast.GeneralParameterReference.model_construct(
+        return ast.GeneralParameterReference._construct(
             parameter_name=ident,
         )
     parser.raise_error("Expected parameter name or number after $")
@@ -1792,13 +1792,13 @@ def _parse_cypher_boolean_factor(parser: BaseParser) -> ast.BooleanFactor:
         # Nested NOT — recurse to handle NOT NOT NOT ...
         inner = _parse_cypher_boolean_factor(parser)
         # Wrap inner BooleanFactor → BooleanTerm → BVE → BooleanTest
-        # Use model_construct to bypass strict BooleanPrimary validation
+        # Use _construct to bypass strict BooleanPrimary validation
         # (BVE is not literally a BooleanPrimary but generators handle it)
         inner_bve = ast.BooleanValueExpression(
             boolean_term=ast.BooleanTerm(list_boolean_factor=[inner]),
             ops=None,
         )
-        inner_test = ast.BooleanTest.model_construct(
+        inner_test = ast.BooleanTest._construct(
             boolean_primary=inner_bve,
             truth_value=None,
         )
@@ -1903,7 +1903,7 @@ def _parse_cypher_boolean_test(parser: BaseParser) -> ast.BooleanTest:
                 parser._advance()
                 not_ = True
             parser._expect(TokenType.NULL)
-            rhs_wrapped = ast.NullPredicate.model_construct(
+            rhs_wrapped = ast.NullPredicate._construct(
                 value_expression_primary=rhs_expr,
                 null_predicate_part_2=ast.NullPredicatePart2(not_=not_),
             )
@@ -2674,8 +2674,8 @@ def _parse_cypher_yield_clause(parser: BaseParser) -> ast.YieldClause:
     if parser._match(TokenType.ASTERISK):
         parser._expect(TokenType.ASTERISK)
         # YIELD * — return a YieldClause with an empty item list
-        return ast.YieldClause.model_construct(
-            yield_item_list=ast.YieldItemList.model_construct(list_yield_item=[]),
+        return ast.YieldClause._construct(
+            yield_item_list=ast.YieldItemList._construct(list_yield_item=[]),
         )
     yield_item_list = parser.get_parser(ast.YieldItemList)(parser)
     return ast.YieldClause(yield_item_list=yield_item_list)
@@ -3032,8 +3032,8 @@ def _parse_cypher_offset_clause(parser: BaseParser) -> ast.OffsetClause:
     expr = parser.get_parser(ast.ValueExpression)(parser)
     _reject_negative_literal(expr, "SKIP")
     _reject_float_literal(expr, "SKIP")
-    # model_construct bypasses Pydantic validation to allow any expression
-    return ast.OffsetClause.model_construct(non_negative_integer_specification=expr)
+    # _construct bypasses validation to allow any expression
+    return ast.OffsetClause._construct(non_negative_integer_specification=expr)
 
 
 def _parse_cypher_limit_clause(parser: BaseParser) -> ast.LimitClause:
@@ -3046,8 +3046,8 @@ def _parse_cypher_limit_clause(parser: BaseParser) -> ast.LimitClause:
     expr = parser.get_parser(ast.ValueExpression)(parser)
     _reject_negative_literal(expr, "LIMIT")
     _reject_float_literal(expr, "LIMIT")
-    # model_construct bypasses Pydantic validation to allow any expression
-    return ast.LimitClause.model_construct(non_negative_integer_specification=expr)
+    # _construct bypasses validation to allow any expression
+    return ast.LimitClause._construct(non_negative_integer_specification=expr)
 
 
 # =============================================================================

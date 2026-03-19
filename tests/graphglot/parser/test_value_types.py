@@ -4,8 +4,6 @@ import unittest
 
 import pytest
 
-from pydantic import ValidationError
-
 from graphglot import ast
 
 from .helpers import ParserTestHelper
@@ -406,7 +404,7 @@ class TestStringTypeValidation(unittest.TestCase):
 
     def test_string_min_without_max_raises(self):
         """STRING with min_length but no max_length should raise ValueError."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             ast.CharacterStringType._String(
                 min_length=ast.UnsignedInteger(value=1),
                 max_length=None,
@@ -429,7 +427,7 @@ class TestStringTypeValidation(unittest.TestCase):
 
     def test_bytes_min_without_max_raises(self):
         """BYTES with min_length but no max_length should raise ValueError."""
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             ast.ByteStringType._Bytes(
                 min_length=ast.UnsignedInteger(value=1),
                 max_length=None,

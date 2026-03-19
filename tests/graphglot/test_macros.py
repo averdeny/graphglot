@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import unittest
 
-from pydantic import ValidationError
-
 from graphglot import ast
 from graphglot.ast.base import is_nonstandard
 from graphglot.ast.macros import MacroCall, MacroVar
@@ -14,16 +12,10 @@ from tests.graphglot.parser.helpers import ParserTestHelper
 
 
 class TestSetScalarValidation(unittest.TestCase):
-    """Bug #1: set() scalar path must preserve Pydantic validation."""
+    """Bug #1: set() scalar path must update fields correctly."""
 
-    def test_set_rejects_wrong_type_on_normal_node(self):
-        """set() on a non-macro node should reject invalid types."""
-        ident = ast.Identifier(name="foo")
-        with self.assertRaises((ValidationError, TypeError)):
-            ident.set("name", 123)  # name: str — int should be rejected
-
-    def test_set_accepts_valid_type_on_normal_node(self):
-        """set() on a non-macro node should accept valid types."""
+    def test_set_updates_field_value(self):
+        """set() on a non-macro node should update the field."""
         ident = ast.Identifier(name="foo")
         ident.set("name", "bar")
         self.assertEqual(ident.name, "bar")
@@ -120,10 +112,10 @@ class TestMacroAwareInit(unittest.TestCase):
         stmt = ast.SimpleLinearQueryStatement(list_simple_query_statement=[mc])
         self.assertEqual(len(stmt.list_simple_query_statement), 1)
 
-    def test_non_macro_validation_unchanged(self):
-        # Normal invalid data should still raise ValidationError
-        with self.assertRaises(ValidationError):
-            ast.SimpleMatchStatement(graph_pattern_binding_table="not_valid")
+    def test_non_macro_construction_accepts_data(self):
+        # Without Pydantic, construction doesn't type-check fields
+        stmt = ast.SimpleMatchStatement(graph_pattern_binding_table="not_valid")
+        self.assertEqual(stmt.graph_pattern_binding_table, "not_valid")
 
     def test_parent_tracking_with_macro(self):
         mv = MacroVar(name="tbl")
@@ -598,8 +590,8 @@ class TestTransformMacroExpansion(unittest.TestCase):
     def test_transform_expands_macro_in_scalar_typed_field(self):
         """Replacing a MacroCall in a typed scalar field with a non-macro should work."""
         macro = MacroCall(name="ref", arguments=[])
-        # Place macro in a typed field via model_construct (as __init__ does for macros)
-        stmt = ast.SimpleMatchStatement.model_construct(
+        # Place macro in a typed field via _construct (as __init__ does for macros)
+        stmt = ast.SimpleMatchStatement._construct(
             graph_pattern_binding_table=macro,
         )
         macro._parent = stmt
@@ -620,7 +612,7 @@ class TestTransformMacroExpansion(unittest.TestCase):
     def test_set_replaces_macro_with_nonmacro_in_typed_field(self):
         """Direct set() replacing a macro with a type-mismatched non-macro should succeed."""
         macro = MacroCall(name="placeholder", arguments=[])
-        stmt = ast.SimpleMatchStatement.model_construct(
+        stmt = ast.SimpleMatchStatement._construct(
             graph_pattern_binding_table=macro,
         )
         macro._parent = stmt
@@ -634,7 +626,7 @@ class TestTransformMacroExpansion(unittest.TestCase):
     def test_set_parent_tracking_after_macro_expansion(self):
         """Parent and arg_key should be correct after replacing a macro."""
         macro = MacroCall(name="placeholder", arguments=[])
-        stmt = ast.SimpleMatchStatement.model_construct(
+        stmt = ast.SimpleMatchStatement._construct(
             graph_pattern_binding_table=macro,
         )
         macro._parent = stmt
@@ -648,7 +640,7 @@ class TestTransformMacroExpansion(unittest.TestCase):
     def test_transform_macro_expansion_preserves_original(self):
         """copy=True must not modify the original tree."""
         macro = MacroCall(name="ref", arguments=[])
-        stmt = ast.SimpleMatchStatement.model_construct(
+        stmt = ast.SimpleMatchStatement._construct(
             graph_pattern_binding_table=macro,
         )
         macro._parent = stmt
@@ -665,11 +657,11 @@ class TestTransformMacroExpansion(unittest.TestCase):
         # Result should have the replacement
         self.assertEqual(result.graph_pattern_binding_table.name, "expanded")
 
-    def test_set_still_validates_normal_scalar_field(self):
-        """Regression: non-macro scalar fields should still be validated."""
+    def test_set_updates_normal_scalar_field(self):
+        """set() should update normal scalar fields."""
         ident = ast.Identifier(name="foo")
-        with self.assertRaises((ValidationError, TypeError)):
-            ident.set("name", 123)  # name: str — int should be rejected
+        ident.set("name", "bar")
+        self.assertEqual(ident.name, "bar")
 
     def test_transform_macro_expansion_full_query(self):
         """End-to-end: parse with macro, transform to expand, generate result."""

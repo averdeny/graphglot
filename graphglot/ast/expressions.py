@@ -12,11 +12,9 @@ import typing as t
 from decimal import Decimal
 from enum import Enum, auto
 
-from pydantic import Field as PydanticField, model_validator
-
 from graphglot import features as F
 
-from .base import Expression, nonstandard
+from .base import Expression, field, model_validator, nonstandard
 
 
 class GqlProgram(Expression):
@@ -2420,7 +2418,7 @@ class ByteStringLiteral(Expression):
 class UnsignedNumericLiteral(Expression):
     """AST Expression for <unsigned numeric literal>."""
 
-    value: Decimal | int = PydanticField(..., ge=0)
+    value: Decimal | int = field(..., ge=0)
 
 
 class Mantissa(Expression):
@@ -3027,7 +3025,7 @@ class PathSearchPrefix(PathPatternPrefix):
 class PathMultisetAlternation(PathPatternExpression):
     """AST Expression for <path multiset alternation>."""
 
-    list_path_term: list[PathTerm] = PydanticField(..., min_length=2)
+    list_path_term: list[PathTerm] = field(..., min_length=2)
 
     @model_validator(mode="after")
     def _check_path_multiset_alternation(self):
@@ -3044,7 +3042,7 @@ class PathMultisetAlternation(PathPatternExpression):
 class PathPatternUnion(PathPatternExpression):
     """AST Expression for <path pattern union>."""
 
-    list_path_term: list[PathTerm] = PydanticField(..., min_length=2)
+    list_path_term: list[PathTerm] = field(..., min_length=2)
 
     @model_validator(mode="after")
     def _check_path_pattern_union(self):
@@ -3061,7 +3059,7 @@ class PathPatternUnion(PathPatternExpression):
 class PathTerm(PathPatternExpression):
     """AST Expression for <path term> and <path concatenation>."""
 
-    factors: list[PathFactor] = PydanticField(..., min_length=1)
+    factors: list[PathFactor] = field(..., min_length=1)
 
     @model_validator(mode="after")
     def _check_path_term(self):
@@ -3107,7 +3105,7 @@ class ElementPropertySpecification(ElementPatternPredicate):
 class LabelTerm(Expression):
     """AST Expression for <label term> and <label conjunction>."""
 
-    label_factors: list[LabelFactor] = PydanticField(..., min_length=1)
+    label_factors: list[LabelFactor] = field(..., min_length=1)
 
 
 class FixedQuantifier(GraphPatternQuantifier):
@@ -3143,13 +3141,13 @@ class Asterisk(Expression):
 class SimplifiedPathUnion(SimplifiedContents):
     """AST Expression for <simplified path union>."""
 
-    list_simplified_term: list[SimplifiedTerm] = PydanticField(..., min_length=2)
+    list_simplified_term: list[SimplifiedTerm] = field(..., min_length=2)
 
 
 class SimplifiedMultisetAlternation(SimplifiedContents):
     """AST Expression for <simplified multiset alternation>."""
 
-    list_simplified_terms: list[SimplifiedTerm] = PydanticField(..., min_length=2)
+    list_simplified_terms: list[SimplifiedTerm] = field(..., min_length=2)
 
 
 class SimplifiedTerm(SimplifiedContents):
@@ -3314,7 +3312,7 @@ NumberOfGroups: t.TypeAlias = NonNegativeIntegerSpecification
 class UnsignedInteger(NonNegativeIntegerSpecification):
     """AST Expression for <unsigned integer>."""
 
-    value: int = PydanticField(..., ge=0)
+    value: int = field(..., ge=0)
 
 
 class CaseAbbreviation(CaseExpression):
@@ -4537,7 +4535,7 @@ class AmbiguousValueExpression(CommonValueExpression):
 class ConcatenationValueExpression(AmbiguousValueExpression):
     """AST Expression for ambiguous concatenation expressions."""
 
-    operands: list[ValueExpressionPrimary] = PydanticField(..., min_length=2)
+    operands: list[ValueExpressionPrimary] = field(..., min_length=2)
 
 
 @nonstandard("Parse-time ambiguity: ABS() could be numeric or duration")
@@ -5281,7 +5279,7 @@ class ReferenceValueExpression(CommonValueExpression):
 class PathValueExpression(CommonValueExpression):
     """AST Expression for <path value expression> and <path value concatenation>."""
 
-    list_path_value_primary: list[PathValuePrimary] = PydanticField(..., min_length=1)
+    list_path_value_primary: list[PathValuePrimary] = field(..., min_length=1)
 
     @model_validator(mode="after")
     def _check_path_value_expression(self):
@@ -5294,7 +5292,7 @@ class PathValueExpression(CommonValueExpression):
 class ListValueExpression(CommonValueExpression):
     """AST Expression for <list value expression> and <list concatenation>."""
 
-    list_list_primary: list[ListPrimary] = PydanticField(..., min_length=1)
+    list_list_primary: list[ListPrimary] = field(..., min_length=1)
 
     @model_validator(mode="after")
     def _check_list_value_expression(self):
