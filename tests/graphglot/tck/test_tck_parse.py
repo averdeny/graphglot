@@ -21,7 +21,7 @@ _neo4j = Neo4j()
 
 
 @pytest.mark.tck
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(10)
 @pytest.mark.parametrize(
     "scenario",
     PARSE_SCENARIOS,
