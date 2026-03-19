@@ -1,7 +1,7 @@
 # GraphGlot
 
 ![CI](https://github.com/averdeny/graphglot/actions/workflows/release.yml/badge.svg)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/averdeny/graphglot/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 **Parse, validate, transpile, and analyze graph query languages.**
@@ -23,7 +23,7 @@ GraphGlot is pre-v1 and evolving quickly. APIs and behavior may still change as 
 
 ## Playground
 
-Try it online: graphglot.com/playground
+Try it online [here](https://graphglot.com/playground).
 
 ## Validation
 
@@ -166,17 +166,17 @@ pip install -e ".[dev]"
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — first query, CLI tour
-- [Dialect Guide](docs/guide/dialects.md) — the dialect system and feature validation
-- [Lineage Analysis](docs/guide/lineage.md) — data flow tracking and export formats
-- [AST Overview](docs/guide/ast.md) — working with the abstract syntax tree
-- [GQL Features](docs/gql_features.md) — reference for GQL features and optional feature coverage
-- [Architecture](docs/architecture/README.md) — module structure and design patterns
-- [TCK Conformance](docs/tck.md) — openCypher compatibility status
+- [Getting Started](https://github.com/averdeny/graphglot/blob/main/docs/getting-started.md) — first query, CLI tour
+- [Dialect Guide](https://github.com/averdeny/graphglot/blob/main/docs/guide/dialects.md) — the dialect system and feature validation
+- [Lineage Analysis](https://github.com/averdeny/graphglot/blob/main/docs/guide/lineage.md) — data flow tracking and export formats
+- [AST Overview](https://github.com/averdeny/graphglot/blob/main/docs/guide/ast.md) — working with the abstract syntax tree
+- [GQL Features](https://github.com/averdeny/graphglot/blob/main/docs/gql_features.md) — reference for GQL features and optional feature coverage
+- [Architecture](https://github.com/averdeny/graphglot/blob/main/docs/architecture/README.md) — module structure and design patterns
+- [TCK Conformance](https://github.com/averdeny/graphglot/blob/main/docs/tck.md) — openCypher compatibility status
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. We use:
+See [CONTRIBUTING.md](https://github.com/averdeny/graphglot/blob/main/CONTRIBUTING.md) for guidelines. We use:
 
 ```bash
 make test      # unit tests (pytest)
