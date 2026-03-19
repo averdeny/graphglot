@@ -1,4 +1,4 @@
-name: CI
+name: PR
 
 on:
   pull_request:
@@ -24,6 +24,6 @@ jobs:
           error: 'The PR title does not follow the Conventional Commit guidelines.'
 
   test:
-    name: CI
+    name: Tests
     uses: ./.github/workflows/test-lint.yml
     secrets: inherit

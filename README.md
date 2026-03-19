@@ -1,6 +1,6 @@
 # GraphGlot
 
-![CI](https://github.com/averdeny/graphglot/actions/workflows/test-lint.yml/badge.svg)
+![CI](https://github.com/averdeny/graphglot/actions/workflows/release.yml/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
