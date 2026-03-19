@@ -1,0 +1,95 @@
+site_name: GraphGlot
+site_description: Parse, validate, and transpile graph query languages (GQL and Neo4j Cypher).
+site_url: https://averdeny.github.io/graphglot/
+repo_url: https://github.com/averdeny/graphglot
+repo_name: averdeny/graphglot
+
+theme:
+  name: material
+  favicon: docs/assets/favicon.ico
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: white
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  font:
+    text: DM Sans
+    code: DM Mono
+
+extra_css:
+  - docs/stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+docs_dir: .
+
+plugins:
+  - same-dir
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_category_heading: true
+            show_if_no_docstring: false
+            members_order: source
+            heading_level: 2
+            docstring_style: google
+
+nav:
+  - Home: README.md
+  - Getting Started: docs/getting-started.md
+  - User Guide:
+      - Dialects: docs/guide/dialects.md
+      - CLI Reference: docs/guide/cli.md
+      - Lineage Analysis: docs/guide/lineage.md
+      - AST Overview: docs/guide/ast.md
+      - Query Composition: docs/gql_query_composition.md
+      - GQL Workflow: docs/gql_workflow.md
+  - Architecture:
+      - Overview: docs/architecture/README.md
+  - Reference:
+      - GQL Features: docs/gql_features.md
+      - TCK Conformance: docs/tck.md

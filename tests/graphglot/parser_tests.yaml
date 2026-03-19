@@ -1,0 +1,79 @@
+# tests/parser_cases.yaml
+defaults:
+  dialect: ir  # your base IR dialect name, whatever Dialect.get_or_raise accepts
+
+tests:
+  - name: session_close
+    description: "SESSION CLOSE should parse to a SessionCloseCommand leaf"
+    query: "SESSION CLOSE"
+    variants:
+      - dialect: ir
+        mode: parse
+        expect:
+          kind: success
+          leaves:
+            - type: SessionCloseCommand
+      # later, if another dialect behaves differently:
+      # - dialect: SomeOtherDialect
+      #   mode: parse
+      #   expect:
+      #     kind: error
+      #     error_type: ParseError
+
+  - name: session_set_not_implemented
+    description: "SESSION SET is not implemented"
+    query: "SESSION SET"
+    variants:
+      - dialect: ir
+        mode: direct
+        root: SessionSetCommand
+        expect:
+          kind: error
+          error_type: ParseNotImplementedError
+
+  - name: commit_command
+    description: "COMMIT parses to a CommitCommand leaf"
+    query: "COMMIT"
+    variants:
+      - dialect: ir
+        mode: direct
+        root: CommitCommand
+        expect:
+          kind: success
+          leaves:
+            - type: CommitCommand
+
+  - name: path_term_binding_and_label
+    description: "(n:Person) path term"
+    query: "(n:Person)"
+    variants:
+      - dialect: ir
+        mode: direct
+        root: PathTerm
+        expect:
+          kind: success
+          leaves:
+            - type: BindingVariable
+              params:
+                name: "n"
+            - type: LabelName
+              params:
+                name: "Person"
+
+  - name: simple_match_statement
+    description: "MATCH (n:Person) RETURN *"
+    query: "MATCH (n:Person) RETURN *"
+    variants:
+      - dialect: ir
+        mode: parse
+        expect:
+          kind: success
+          leaves:
+            - type: All
+            - type: Asterisk
+            - type: BindingVariable
+              params:
+                name: "n"
+            - type: LabelName
+              params:
+                name: "Person"

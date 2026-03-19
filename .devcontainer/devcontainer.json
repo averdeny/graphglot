@@ -1,0 +1,47 @@
+{
+    "name": "GraphGlot",
+    "dockerComposeFile": "./docker-compose.yaml",
+    "service": "graphglot",
+    "workspaceFolder": "/graphglot",
+    "shutdownAction": "stopCompose",
+    "postCreateCommand": "pre-commit install && git config core.trustctime false && git config core.checkStat minimal",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-azuretools.vscode-docker",
+                "github.copilot",
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "charliermarsh.ruff",
+                "redhat.vscode-yaml",
+                "ms-azuretools.vscode-docker",
+                "vscode-icons-team.vscode-icons",
+                "tamasfe.even-better-toml",
+                "eamodio.gitlens",
+                "streetsidesoftware.code-spell-checker",
+                "yzhang.markdown-all-in-one",
+                "ms-vscode.makefile-tools",
+                "mechatroner.rainbow-csv",
+                "ms-toolsai.jupyter",
+                "anthropic.claude-code",
+                "bierner.markdown-mermaid",
+                "openai.chatgpt"
+            ],
+            "settings": {
+                "files.trimTrailingWhitespace": true,
+                "files.insertFinalNewline": true,
+                "[python]": {
+                    "editor.tabSize": 4,
+                    "editor.insertSpaces": true,
+                    "editor.formatOnSave": true
+                },
+                "cSpell.userWords": [
+                    "rdflib",
+                    "jsonld",
+                    "jsonschema",
+                    "graphglot"
+                ]
+            }
+        }
+    }
+}

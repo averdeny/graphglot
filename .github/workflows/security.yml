@@ -1,0 +1,46 @@
+name: Security
+
+on:
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: "0 8 * * 1"  # Weekly Monday 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    name: Dependency audit
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.3
+    with:
+      scan-args: |-
+        --lockfile=uv.lock
+      upload-sarif: false
+
+  fuzz:
+    name: Fuzz tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run fuzz tests
+        run: make fuzz

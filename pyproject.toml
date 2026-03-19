@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "graphglot"
+version = "0.1.0"
+description = "Parse, validate, and transpile graph query languages (GQL and Neo4j Cypher)."
+authors = [
+    {name = "Albert Verdeny", email = "admin@graphglot.com"},
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.11"
+keywords = ["gql", "cypher", "neo4j", "parser", "transpiler", "lineage", "ast"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Compilers",
+]
+dependencies = [
+    "pyyaml>=6.0.2",
+    "pydantic>=2.6.1",
+    "click>=8.1.8",
+    "rich>=14.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3.1",
+    "ruff>=0.11.2",
+    "mypy>=1.11.0",
+    "pre-commit>=4.2.0",
+    "neo4j>=6.0.0",
+    "hypothesis>=6.100.0",
+    "gherkin-official>=28.0.0",
+]
+
+docs = [
+    "mkdocs>=1.6.0,<2",
+    "mkdocs-material>=9.5.0,<10",
+    "mkdocstrings[python]>=0.27.0",
+    "mkdocs-gen-files>=0.5.0",
+    "mkdocs-literate-nav>=0.6.0",
+    "mkdocs-same-dir>=0.1.3",
+]
+
+[project.scripts]
+gg = "graphglot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/averdeny/graphglot"
+Repository = "https://github.com/averdeny/graphglot"
+Issues = "https://github.com/averdeny/graphglot/issues"
+Changelog = "https://github.com/averdeny/graphglot/blob/main/CHANGELOG.md"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+allow_zero_version = true
+major_on_zero = false
+branch = "main"
+commit_message = "chore(release): v{version} [skip ci]"
+build_command = "uv lock --upgrade-package graphglot && git add uv.lock"
+tag_format = "v{version}"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["build", "ci", "docs", "chore", "feat", "fix", "perf", "refactor", "style", "test"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B", "C4", "UP", "RUF", "S"]
+ignore = ["N812"]  # Allow `features as F` convention for typed feature constants
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"graphglot/cli.py" = ["S324"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/graphglot"]
+markers = [
+    "integration: requires running Neo4j instance",
+    "fuzz: property-based fuzzing tests (hypothesis)",
+    "tck: openCypher TCK conformance tests",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["graphglot"]
+combine-as-imports = true
+lines-between-types = 1
+
+[tool.coverage.run]
+source = ["graphglot"]
+omit = [
+    "graphglot/visualization/*",
+]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_empty = true
