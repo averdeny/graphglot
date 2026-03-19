@@ -25,5 +25,5 @@ jobs:
 
   test:
     name: Run tests and linting
-    uses: ./.github/workflows/build-test-lint.yml
+    uses: ./.github/workflows/test-lint.yml
     secrets: inherit
