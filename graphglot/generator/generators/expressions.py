@@ -211,6 +211,20 @@ def generate_arithmetic_absolute_value_function(
     return gen.seq("ABS", gen.parens(gen.dispatch(expr.arithmetic_value_expression)))
 
 
+@generates(ast.AbsoluteValueExpression)
+def generate_absolute_value_expression(
+    gen: Generator, expr: ast.AbsoluteValueExpression
+) -> Fragment:
+    return gen.seq("ABS", gen.parens(gen.dispatch(expr.numeric_value_expression)))
+
+
+@generates(ast.DurationAbsoluteValueFunction)
+def generate_duration_absolute_value_function(
+    gen: Generator, expr: ast.DurationAbsoluteValueFunction
+) -> Fragment:
+    return gen.seq("ABS", gen.parens(gen.dispatch(expr.duration_value_expression)))
+
+
 @generates(ast.DatetimeValueExpression)
 def generate_datetime_value_expression(
     gen: Generator, expr: ast.DatetimeValueExpression

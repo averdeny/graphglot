@@ -395,6 +395,20 @@ class TestExpressionGenerators(unittest.TestCase):
         expr = ast.SubstitutedParameterReference(parameter_name=ast.Identifier(name="param"))
         self.assertEqual(generate(expr), "$$param")
 
+    def test_absolute_value_expression(self):
+        expr = ast.AbsoluteValueExpression(
+            numeric_value_expression=ast.UnsignedNumericLiteral(value=42)
+        )
+        self.assertEqual(generate(expr), "ABS (42)")
+
+    def test_duration_absolute_value_function(self):
+        expr = ast.DurationAbsoluteValueFunction(
+            duration_value_expression=ast.GeneralParameterReference(
+                parameter_name=ast.Identifier(name="d")
+            )
+        )
+        self.assertEqual(generate(expr), "ABS ($d)")
+
 
 class TestPatternGenerators(unittest.TestCase):
     """Tests for pattern generator functions."""
