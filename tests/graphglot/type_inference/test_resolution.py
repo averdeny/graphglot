@@ -2,13 +2,13 @@
 
 from graphglot.ast import expressions as ast
 from graphglot.dialect.base import Dialect
-from graphglot.typing import TypeAnnotator, TypeKind
+from graphglot.typing import ExternalContext, GqlType, TypeAnnotator, TypeKind
 
 
-def _annotate(query: str) -> ast.Expression:
+def _annotate(query: str, **kwargs) -> ast.Expression:
     d = Dialect.get_or_raise("ir")
     exprs = d.parse(query)
-    TypeAnnotator().annotate(exprs[0])
+    TypeAnnotator(**kwargs).annotate(exprs[0])
     return exprs[0]
 
 
@@ -33,6 +33,21 @@ class TestConcatenationResolution:
             t = cve._resolved_type
             # Should be a union of STRING, LIST, PATH
             assert t.is_union or t.kind in (TypeKind.STRING, TypeKind.LIST, TypeKind.PATH)
+
+    def test_path_concat_resolved(self):
+        """p || q with PATH operands should resolve to PATH."""
+        root = _annotate("MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) RETURN p || q")
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.kind == TypeKind.PATH
+
+    def test_string_concat_with_context(self):
+        """n.name || n.name with STRING property context should resolve to STRING."""
+        ctx = ExternalContext(property_types={("Person", "name"): GqlType.string()})
+        root = _annotate("MATCH (n:Person) RETURN n.name || n.name", external_context=ctx)
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.kind == TypeKind.STRING
 
 
 class TestArithmeticResolution:

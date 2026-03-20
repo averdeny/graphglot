@@ -72,6 +72,64 @@ class TestPathVariable:
             raise AssertionError("No resolved identifier 'p' found")
 
 
+class TestBindingVariableReference:
+    """Tests that BindingVariableReference propagates the type from its inner Identifier."""
+
+    def test_binding_variable_reference_type(self):
+        root = _annotate("MATCH (n:Person) RETURN n")
+        bvr = root.find_first(ast.BindingVariableReference)
+        assert bvr is not None
+        assert bvr._resolved_type.kind == TypeKind.NODE
+        assert "Person" in bvr._resolved_type.labels
+
+    def test_multi_label_binding_variable_reference(self):
+        root = _annotate("MATCH (n:Person&Employee) RETURN n")
+        bvr = root.find_first(ast.BindingVariableReference)
+        assert bvr is not None
+        assert bvr._resolved_type.kind == TypeKind.NODE
+        assert bvr._resolved_type.labels == frozenset({"Person", "Employee"})
+
+    def test_multiple_bvr_in_return(self):
+        root = _annotate("MATCH (a:Person)-[r:KNOWS]->(b:Company) RETURN a, r, b")
+        bvrs = list(root.find_all(ast.BindingVariableReference))
+        resolved = {b.binding_variable.name: b._resolved_type for b in bvrs if b._resolved_type}
+        assert resolved["a"].kind == TypeKind.NODE
+        assert "Person" in resolved["a"].labels
+        assert resolved["r"].kind == TypeKind.EDGE
+        assert "KNOWS" in resolved["r"].labels
+        assert resolved["b"].kind == TypeKind.NODE
+        assert "Company" in resolved["b"].labels
+
+    def test_bvr_with_alias(self):
+        root = _annotate("MATCH (n:Person) RETURN n AS person")
+        bvr = root.find_first(ast.BindingVariableReference)
+        assert bvr is not None
+        assert bvr._resolved_type.kind == TypeKind.NODE
+        assert "Person" in bvr._resolved_type.labels
+
+    def test_edge_binding_variable_reference_type(self):
+        root = _annotate("MATCH (a)-[e:KNOWS]->(b) RETURN e")
+        bvrs = list(root.find_all(ast.BindingVariableReference))
+        edge_bvr = [b for b in bvrs if b.binding_variable.name == "e"]
+        assert len(edge_bvr) == 1
+        assert edge_bvr[0]._resolved_type.kind == TypeKind.EDGE
+        assert "KNOWS" in edge_bvr[0]._resolved_type.labels
+
+    def test_path_binding_variable_reference_type(self):
+        root = _annotate("MATCH p = (a)-[e]->(b) RETURN p")
+        bvrs = list(root.find_all(ast.BindingVariableReference))
+        path_bvr = [b for b in bvrs if b.binding_variable.name == "p"]
+        assert len(path_bvr) == 1
+        assert path_bvr[0]._resolved_type.kind == TypeKind.PATH
+
+    def test_bvr_unlabeled_node(self):
+        root = _annotate("MATCH (n) RETURN n")
+        bvr = root.find_first(ast.BindingVariableReference)
+        assert bvr is not None
+        assert bvr._resolved_type.kind == TypeKind.NODE
+        assert bvr._resolved_type.labels == frozenset()
+
+
 class TestParameterReference:
     def test_unknown_without_context(self):
         root = _annotate("RETURN $param")

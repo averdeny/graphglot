@@ -2,13 +2,13 @@
 
 from graphglot.ast import expressions as ast
 from graphglot.dialect.base import Dialect
-from graphglot.typing import TypeAnnotator, TypeKind
+from graphglot.typing import ExternalContext, GqlType, TypeAnnotator, TypeKind
 
 
-def _annotate(query: str) -> ast.Expression:
+def _annotate(query: str, **kwargs) -> ast.Expression:
     d = Dialect.get_or_raise("ir")
     exprs = d.parse(query)
-    TypeAnnotator().annotate(exprs[0])
+    TypeAnnotator(**kwargs).annotate(exprs[0])
     return exprs[0]
 
 
@@ -75,6 +75,38 @@ class TestPropertyReference:
         root = _annotate("MATCH (n) RETURN n.name")
         pr = root.find_first(ast.PropertyReference)
         assert pr._resolved_type.is_unknown
+
+    def test_property_with_external_context(self):
+        ctx = ExternalContext(property_types={("Person", "name"): GqlType.string()})
+        root = _annotate("MATCH (n:Person) RETURN n.name", external_context=ctx)
+        pr = root.find_first(ast.PropertyReference)
+        assert pr._resolved_type.kind == TypeKind.STRING
+
+    def test_multiple_properties_with_context(self):
+        ctx = ExternalContext(
+            property_types={
+                ("Person", "name"): GqlType.string(),
+                ("Person", "age"): GqlType.integer(),
+            }
+        )
+        root = _annotate("MATCH (n:Person) RETURN n.name, n.age", external_context=ctx)
+        prs = list(root.find_all(ast.PropertyReference))
+        types_by_name = {pr.property_name[0].identifier.name: pr._resolved_type for pr in prs}
+        assert types_by_name["name"].kind == TypeKind.STRING
+        assert types_by_name["age"].kind == TypeKind.INT
+
+    def test_edge_property_with_context(self):
+        ctx = ExternalContext(property_types={("KNOWS", "since"): GqlType.integer()})
+        root = _annotate("MATCH ()-[r:KNOWS]->() RETURN r.since", external_context=ctx)
+        pr = root.find_first(ast.PropertyReference)
+        assert pr._resolved_type.kind == TypeKind.INT
+
+    def test_property_source_has_node_type(self):
+        """BVR propagation: property source should have NODE type even without ExternalContext."""
+        root = _annotate("MATCH (n:Person) RETURN n.name")
+        pr = root.find_first(ast.PropertyReference)
+        assert pr._resolved_type.is_unknown  # no external context
+        assert pr.property_source._resolved_type.kind == TypeKind.NODE
 
     def test_predicate_types(self):
         """NullPredicate returns BOOLEAN."""

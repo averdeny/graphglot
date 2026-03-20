@@ -93,6 +93,12 @@ def type_identifier(annotator, expr):
     return GqlType.unknown()
 
 
+@type_rule(ast.BindingVariableReference)
+def type_binding_variable_reference(annotator, expr):
+    """Propagate type from the inner binding variable."""
+    return annotator.annotate_child(expr.binding_variable)
+
+
 @type_rule(ast.GeneralParameterReference)
 def type_general_parameter_reference(annotator, expr):
     annotator.annotate_children(expr)
