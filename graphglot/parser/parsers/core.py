@@ -5580,22 +5580,19 @@ def parse_simplified_tertiary(parser: Parser) -> ast.SimplifiedTertiary:
 
 @parses(ast.PathValueConcatenation)
 def parse_path_value_concatenation(parser: Parser) -> ast.PathValueConcatenation:
-    (
-        path_value_expression_1,
-        _,
-        path_value_primary,
-    ) = parser.seq(
-        parser.get_parser(ast.PathValueExpression1),
-        TokenType.CONCATENATION_OPERATOR,
-        parser.get_parser(ast.PathValuePrimary),
+    (primaries,) = parser.seq(
+        parser.list_(
+            parser.get_parser(ast.PathValuePrimary),
+            TokenType.CONCATENATION_OPERATOR,
+            min_items=2,
+        ),
     )
     return ast.PathValueConcatenation(
-        list_path_value_primary=[
-            *path_value_expression_1.list_path_value_primary,
-            path_value_primary,
-        ],
-        path_value_expression_1=path_value_expression_1,
-        path_value_primary=path_value_primary,
+        list_path_value_primary=primaries,
+        path_value_expression_1=ast.PathValueExpression(
+            list_path_value_primary=primaries[:-1],
+        ),
+        path_value_primary=primaries[-1],
     )
 
 

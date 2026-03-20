@@ -330,10 +330,6 @@ class TestCatalogBindingTable(unittest.TestCase):
     def setUp(self):
         self.helper = ParserTestHelper()
 
-    @pytest.mark.xfail(
-        reason="BindingTableName returns Identifier, not BindingTableName instance",
-        raises=Exception,
-    )
     def test_catalog_binding_table_parent_and_name(self):
         """CatalogBindingTableParentAndName with bare table name."""
         self.helper.parse_single("myTable", ast.CatalogBindingTableParentAndName)
@@ -345,13 +341,28 @@ class TestPathValueConcatenation(unittest.TestCase):
     def setUp(self):
         self.helper = ParserTestHelper()
 
-    @pytest.mark.xfail(
-        reason="PathValueConcatenation fails — parser does not resolve path value primary",
-        raises=Exception,
-    )
     def test_path_value_concatenation(self):
         """Path concatenation via || operator."""
-        self.helper.parse_single("p || q", ast.PathValueConcatenation)
+        result = self.helper.parse_single("p || q", ast.PathValueConcatenation)
+        assert len(result.list_path_value_primary) == 2
+        assert isinstance(result.path_value_expression_1, ast.PathValueExpression)
+        assert len(result.path_value_expression_1.list_path_value_primary) == 1
+
+    def test_path_value_concatenation_three(self):
+        """Three-way path concatenation: p || q || r."""
+        result = self.helper.parse_single("p || q || r", ast.PathValueConcatenation)
+        assert len(result.list_path_value_primary) == 3
+        assert len(result.path_value_expression_1.list_path_value_primary) == 2
+
+    def test_path_value_concatenation_round_trip(self):
+        """Round-trip: parse then generate preserves p || q."""
+        result = self.helper.parse_single("p || q", ast.PathValueConcatenation)
+        assert result.to_gql() == "p || q"
+
+    def test_path_value_concatenation_three_round_trip(self):
+        """Round-trip: parse then generate preserves p || q || r."""
+        result = self.helper.parse_single("p || q || r", ast.PathValueConcatenation)
+        assert result.to_gql() == "p || q || r"
 
 
 class TestStubParsers(unittest.TestCase):
@@ -359,41 +370,6 @@ class TestStubParsers(unittest.TestCase):
 
     def setUp(self):
         self.helper = ParserTestHelper()
-
-    @pytest.mark.xfail(
-        reason="Stub parser — body is `pass`, lexer-level construct",
-    )
-    def test_double_single_quote(self):
-        """DoubleSingleQuote stub parser."""
-        self.helper.parse_single("''", ast.DoubleSingleQuote)
-
-    @pytest.mark.xfail(
-        reason="Stub parser — body is `pass`, lexer-level construct",
-    )
-    def test_double_grave_accent(self):
-        """DoubleGraveAccent stub parser."""
-        self.helper.parse_single("``", ast.DoubleGraveAccent)
-
-    @pytest.mark.xfail(
-        reason="Stub parser — body is `pass`, lexer-level construct",
-    )
-    def test_string_literal_character(self):
-        """StringLiteralCharacter stub parser."""
-        self.helper.parse_single("a", ast.StringLiteralCharacter)
-
-    @pytest.mark.xfail(
-        reason="Stub parser — body is `pass`, lexer-level construct",
-    )
-    def test_bidirectional_control_character(self):
-        """BidirectionalControlCharacter stub parser."""
-        self.helper.parse_single("\u200e", ast.BidirectionalControlCharacter)
-
-    @pytest.mark.xfail(
-        reason="Stub parser — body is `pass`, lexer-level construct",
-    )
-    def test_double_period(self):
-        """DoublePeriod stub parser."""
-        self.helper.parse_single("..", ast.DoublePeriod)
 
     def test_sql_datetime_literal_date(self):
         """SqlDatetimeLiteral DATE — parseable directly but unreachable via grammar."""
