@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.1.5 (2026-03-20)
+
+### Bug Fixes
+
+- Add missing generators for AbsoluteValueExpression and DurationAbsoluteValueFunction
+  ([`e9b2f94`](https://github.com/averdeny/graphglot/commit/e9b2f948160c4f3d90f8db37ef5df7c9ffd8c229))
+
+- Handle BYTE_STRING in concatenation type resolution rule
+  ([`7838142`](https://github.com/averdeny/graphglot/commit/7838142e013b2b83ef7c49e3e9ceceecab294a16))
+
+- Propagate type through BindingVariableReference to parent nodes
+  ([`485c863`](https://github.com/averdeny/graphglot/commit/485c8633325a094c6905a3a792c0c9a9fadabae2))
+
+
 ## v0.1.4 (2026-03-20)
 
 ### Bug Fixes
