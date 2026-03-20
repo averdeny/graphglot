@@ -356,6 +356,17 @@ class TestGA04(unittest.TestCase):
         ga04 = [d for d in result.diagnostics if d.feature_id == "GA04"]
         self.assertEqual(len(ga04), 0)
 
+    def test_unknown_arithmetic_vs_temporal_not_flagged(self):
+        """(n.x + n.y) = n.d with DATE context → no false-positive GA04."""
+        ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})
+        result = _analyze(
+            "MATCH (n:Ev) WHERE (n.x + n.y) = n.d RETURN n",
+            _NoGA04(),
+            external_context=ctx,
+        )
+        ga04 = [d for d in result.diagnostics if d.feature_id == "GA04"]
+        self.assertEqual(len(ga04), 0)
+
 
 # ===========================================================================
 # GE04 — Graph parameters

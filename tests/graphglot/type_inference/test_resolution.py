@@ -139,6 +139,43 @@ class TestArithmeticResolution:
         assert ave is not None
         assert ave._resolved_type.kind == TypeKind.DURATION
 
+    def test_unknown_arithmetic_union_contains_all_temporal_kinds(self):
+        """Unknown arithmetic union should contain all 5 temporal kinds."""
+        root = _annotate("MATCH (n) RETURN n.x + n.y")
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        t = ave._resolved_type
+        assert t.union_members is not None
+        temporal_kinds = {m.kind for m in t.union_members if m.is_temporal}
+        assert temporal_kinds == {
+            TypeKind.DATE,
+            TypeKind.TIME,
+            TypeKind.DATETIME,
+            TypeKind.LOCAL_DATETIME,
+            TypeKind.LOCAL_TIME,
+        }
+
+    def test_unknown_arithmetic_comparable_with_numeric(self):
+        """Unknown arithmetic should still be comparable with numeric."""
+        root = _annotate("MATCH (n) RETURN n.x + n.y")
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_comparable_with(GqlType.numeric())
+
+    def test_unknown_arithmetic_comparable_with_duration(self):
+        """Unknown arithmetic should still be comparable with duration."""
+        root = _annotate("MATCH (n) RETURN n.x + n.y")
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_comparable_with(GqlType.duration())
+
+    def test_unknown_arithmetic_not_comparable_with_string(self):
+        """Unknown arithmetic should NOT be comparable with string (union isn't too broad)."""
+        root = _annotate("MATCH (n) RETURN n.x + n.y")
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert not ave._resolved_type.is_comparable_with(GqlType.string())
+
     def test_temporal_bare_property_passthrough(self):
         """DATE property with no operators should resolve to DATE at ReturnItem level."""
         ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})

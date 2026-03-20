@@ -75,7 +75,15 @@ def type_arithmetic_value_expression(annotator, expr):
             return step_type
 
     if base_type.is_unknown:
-        return GqlType.union(GqlType.numeric(), GqlType.duration())
+        return GqlType.union(
+            GqlType.numeric(),
+            GqlType.duration(),
+            GqlType.date(),
+            GqlType.time(),
+            GqlType.datetime_(),
+            GqlType.local_datetime(),
+            GqlType.local_time(),
+        )
 
     return GqlType.unknown()
 
