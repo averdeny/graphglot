@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.4 (2026-03-20)
+
+### Bug Fixes
+
+- **ci**: Inline publish job to avoid reusable workflow OIDC issues
+  ([`0e33fa9`](https://github.com/averdeny/graphglot/commit/0e33fa9df618288dc46fdeb49991d058af0e0aff))
+
+
 ## v0.1.3 (2026-03-20)
 
 ### Bug Fixes
