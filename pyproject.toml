@@ -68,7 +68,7 @@ allow_zero_version = true
 major_on_zero = false
 branch = "main"
 commit_message = "chore(release): v{version} [skip ci]"
-build_command = "uv lock --upgrade-package graphglot && git add uv.lock"
+build_command = "pip install uv && uv lock --upgrade-package graphglot && git add uv.lock"
 tag_format = "v{version}"
 
 [tool.semantic_release.commit_parser_options]

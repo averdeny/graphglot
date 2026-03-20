@@ -1,38 +1,24 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.2)"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  validate_tag:
-    name: Validate release tag
-    runs-on: ubuntu-latest
-    outputs:
-      valid: ${{ steps.validate.outputs.valid }}
-
-    steps:
-      - name: Check semantic version tag
-        id: validate
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "valid=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            echo "Tag '$REF_NAME' is not a strict semantic version like v1.2.3"
-          fi
-
   publish:
     name: Publish to PyPI
-    needs: validate_tag
-    if: needs.validate_tag.outputs.valid == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -40,8 +26,19 @@ jobs:
       id-token: write
 
     steps:
+      - name: Validate tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid semantic version (expected vX.Y.Z)"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
