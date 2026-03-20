@@ -48,13 +48,31 @@ jobs:
           git_committer_email: "actions@users.noreply.github.com"
 
   publish:
-    name: Publish
+    name: Publish to PyPI
     needs: release
     if: needs.release.outputs.released == 'true'
-    uses: ./.github/workflows/publish.yml
+    runs-on: ubuntu-latest
+    environment: pypi
     permissions:
       contents: read
       id-token: write
-    with:
-      tag: ${{ needs.release.outputs.tag }}
-    secrets: inherit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build distribution artifacts
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
