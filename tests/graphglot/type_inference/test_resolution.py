@@ -176,6 +176,24 @@ class TestArithmeticResolution:
         assert ave is not None
         assert not ave._resolved_type.is_comparable_with(GqlType.string())
 
+    def test_temporal_multiply_returns_unknown(self):
+        """DATE * 2 should resolve to UNKNOWN (temporal types have no multiplicative semantics)."""
+        ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})
+        root = _annotate("MATCH (n:Ev) RETURN n.d * 2", external_context=ctx)
+        at = root.find_first(ast.ArithmeticTerm)
+        assert at is not None
+        assert at.steps, "expected multiplicative steps"
+        assert at._resolved_type.is_unknown
+
+    def test_duration_multiply_returns_duration(self):
+        """DURATION * 2 should resolve to DURATION (scaling a duration is valid)."""
+        ctx = ExternalContext(property_types={("Ev", "dur"): GqlType.duration()})
+        root = _annotate("MATCH (n:Ev) RETURN n.dur * 2", external_context=ctx)
+        at = root.find_first(ast.ArithmeticTerm)
+        assert at is not None
+        assert at.steps, "expected multiplicative steps"
+        assert at._resolved_type.kind == TypeKind.DURATION
+
     def test_temporal_bare_property_passthrough(self):
         """DATE property with no operators should resolve to DATE at ReturnItem level."""
         ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})

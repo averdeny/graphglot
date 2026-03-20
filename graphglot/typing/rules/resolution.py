@@ -93,12 +93,12 @@ def type_arithmetic_term(annotator, expr):
     """Resolve arithmetic term (multiply/divide in ambiguous context)."""
     annotator.annotate_children(expr)
     base_type = expr.base._resolved_type if expr.base._resolved_type else GqlType.unknown()
+    if not expr.steps:
+        return base_type
     if base_type.is_numeric:
         return base_type
     if base_type.kind == TypeKind.DURATION:
         return GqlType.duration()
-    if base_type.is_temporal:
-        return base_type
     return GqlType.unknown()
 
 
