@@ -18,31 +18,37 @@ from graphglot.typing.types import GqlType, TypeKind
 
 @type_rule(ast.ConcatenationValueExpression)
 def type_concatenation_value_expression(annotator, expr):
-    """Resolve ``a || b`` based on operand types."""
+    """Resolve ``a || b`` based on operand types.
+
+    Only resolves to a concrete type when all concrete (non-unknown) operands
+    agree on the same kind.  Mixed types (e.g. path || string) stay unknown.
+    """
     for operand in expr.operands:
         annotator.annotate_child(operand)
 
     operand_types = [op._resolved_type for op in expr.operands if op._resolved_type is not None]
 
-    for ot in operand_types:
-        if ot.kind == TypeKind.STRING:
+    concat_kinds = {TypeKind.STRING, TypeKind.BYTE_STRING, TypeKind.PATH, TypeKind.LIST}
+    concrete_kinds = {ot.kind for ot in operand_types if ot.kind in concat_kinds}
+
+    if len(concrete_kinds) == 1:
+        kind = next(iter(concrete_kinds))
+        if kind == TypeKind.STRING:
             return GqlType.string()
-    for ot in operand_types:
-        if ot.kind == TypeKind.BYTE_STRING:
+        if kind == TypeKind.BYTE_STRING:
             return GqlType.byte_string()
-    for ot in operand_types:
-        if ot.kind == TypeKind.PATH:
+        if kind == TypeKind.PATH:
             return GqlType.path()
-    for ot in operand_types:
-        if ot.kind == TypeKind.LIST:
+        if kind == TypeKind.LIST:
             return GqlType.list_()
 
-    # All unknown — return union of possibilities
-    if all(ot.is_unknown for ot in operand_types) or not operand_types:
+    # No concrete concat-compatible types — return union of possibilities
+    if not concrete_kinds:
         return GqlType.union(
             GqlType.string(), GqlType.byte_string(), GqlType.list_(), GqlType.path()
         )
 
+    # Mixed concrete types — cannot resolve
     return GqlType.unknown()
 
 

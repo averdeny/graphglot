@@ -59,6 +59,21 @@ class TestConcatenationResolution:
         assert cve is not None
         assert cve._resolved_type.kind == TypeKind.BYTE_STRING
 
+    def test_mixed_types_stay_unknown(self):
+        """path || string should stay unknown (operands disagree)."""
+        ctx = ExternalContext(
+            property_types={
+                ("A", "p"): GqlType.path(),
+                ("A", "s"): GqlType.string(),
+            }
+        )
+        root = _annotate("MATCH (n:A) RETURN n.p || n.s", external_context=ctx)
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.is_unknown, (
+            f"mixed path||string should be unknown, got {cve._resolved_type!r}"
+        )
+
 
 class TestArithmeticResolution:
     def test_numeric_arithmetic_known(self):

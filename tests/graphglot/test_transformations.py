@@ -2,6 +2,7 @@
 
 Covers:
 - with_to_next: Cypher WITH → GQL RETURN...NEXT chain
+- resolve_ambiguous: Ambiguous AST → concrete GQL types
 - Dialect.transform() integration
 """
 
@@ -11,7 +12,8 @@ from graphglot import ast
 from graphglot.ast.cypher import CypherWithStatement
 from graphglot.dialect.base import Dialect
 from graphglot.dialect.neo4j import Neo4j
-from graphglot.transformations import with_to_next
+from graphglot.transformations import resolve_ambiguous, with_to_next
+from graphglot.typing import ExternalContext, GqlType, TypeAnnotator
 
 
 class TestWithToNext(unittest.TestCase):
@@ -221,14 +223,18 @@ class TestWithToNext(unittest.TestCase):
         block = self._find_block(transformed[0])
         self.assertIsNotNone(block)
 
-    def test_dialect_transform_base_noop(self):
-        """Base Dialect.transform() is a no-op."""
+    def test_dialect_transform_base_applies_resolve(self):
+        """Base Dialect.transform() applies resolve_ambiguous (deep-copies)."""
         base = Dialect()
         trees = base.parse("MATCH (n) RETURN n")
         transformed = base.transform(trees)
         self.assertEqual(len(transformed), len(trees))
+        # Deep-copied — NOT the same objects
         for orig, trans in zip(trees, transformed, strict=False):
-            self.assertIs(orig, trans)
+            self.assertIsNot(orig, trans)
+        # But generates the same output
+        for orig, trans in zip(trees, transformed, strict=False):
+            self.assertEqual(base.generate(orig), base.generate(trans))
 
 
 class TestCypherWithOwnsWhere(unittest.TestCase):
@@ -401,3 +407,167 @@ class TestCypherWithOwnsWhere(unittest.TestCase):
             "Cypher should not override FilterStatement — "
             "the default GQL generator handles FILTER WHERE correctly",
         )
+
+
+class TestResolveAmbiguous(unittest.TestCase):
+    """Test resolve_ambiguous transformation function."""
+
+    def setUp(self):
+        self.dialect = Dialect()
+
+    def _parse_one(self, query: str, *, dialect=None) -> ast.Expression:
+        d = dialect or self.dialect
+        trees = d.parse(query)
+        self.assertEqual(len(trees), 1)
+        return trees[0]
+
+    def _find_types(self, tree: ast.Expression, cls: type) -> list:
+        return [n for n in tree.dfs() if isinstance(n, cls)]
+
+    # ------------------------------------------------------------------
+    # Arithmetic → NumericValueExpression
+    # ------------------------------------------------------------------
+
+    def test_arithmetic_numeric_resolved(self):
+        """RETURN 1 + 2 → ArithmeticVE replaced by NumericVE."""
+        tree = self._parse_one("RETURN 1 + 2")
+        result = resolve_ambiguous(tree)
+        nve = self._find_types(result, ast.NumericValueExpression)
+        self.assertGreaterEqual(len(nve), 1, "Should have NumericValueExpression")
+        ave = self._find_types(result, ast.ArithmeticValueExpression)
+        self.assertEqual(len(ave), 0, "ArithmeticValueExpression should be gone")
+
+    def test_arithmetic_multiply_resolved(self):
+        """RETURN 3 * 4 → ArithmeticVE replaced by NumericVE."""
+        tree = self._parse_one("RETURN 3 * 4")
+        result = resolve_ambiguous(tree)
+        nve = self._find_types(result, ast.NumericValueExpression)
+        self.assertGreaterEqual(len(nve), 1, "Should have NumericValueExpression")
+        ave = self._find_types(result, ast.ArithmeticValueExpression)
+        self.assertEqual(len(ave), 0, "ArithmeticValueExpression should be gone")
+
+    def test_arithmetic_unknown_stays(self):
+        """MATCH (n) RETURN n.x + n.y → stays ArithmeticVE (unknown type)."""
+        tree = self._parse_one("MATCH (n) RETURN n.x + n.y")
+        result = resolve_ambiguous(tree)
+        ave = self._find_types(result, ast.ArithmeticValueExpression)
+        self.assertGreaterEqual(len(ave), 1, "ArithmeticVE should remain")
+
+    def test_arithmetic_bare_unchanged(self):
+        """RETURN 42 → no NumericValueExpression produced (no arithmetic ops)."""
+        tree = self._parse_one("RETURN 42")
+        result = resolve_ambiguous(tree)
+        nve = self._find_types(result, ast.NumericValueExpression)
+        self.assertEqual(len(nve), 0, "Bare literal should not produce NVE")
+
+    # ------------------------------------------------------------------
+    # Concatenation → typed concatenation
+    # ------------------------------------------------------------------
+
+    def test_concat_cast_string_resolved(self):
+        """CAST-to-STRING || CAST-to-STRING → CharacterStringValueExpression."""
+        tree = self._parse_one("RETURN CAST(1 AS STRING) || CAST(2 AS STRING)")
+        result = resolve_ambiguous(tree)
+        csv = self._find_types(result, ast.CharacterStringValueExpression)
+        self.assertGreaterEqual(len(csv), 1, "Should have CharacterStringVE")
+        cve = self._find_types(result, ast.ConcatenationValueExpression)
+        self.assertEqual(len(cve), 0, "ConcatenationVE should be gone")
+
+    def test_concat_path_vars_resolved(self):
+        """Path variable || path variable → PathValueExpression."""
+        tree = self._parse_one("MATCH p = (a)-[r]->(b), q2 = (c)-[s]->(d) RETURN p || q2")
+        result = resolve_ambiguous(tree)
+        pve = self._find_types(result, ast.PathValueExpression)
+        self.assertGreaterEqual(len(pve), 1, "Should have PathValueExpression")
+        cve = self._find_types(result, ast.ConcatenationValueExpression)
+        self.assertEqual(len(cve), 0, "ConcatenationVE should be gone")
+
+    def test_concat_unknown_stays(self):
+        """MATCH (n) RETURN n.x || n.y → stays ConcatenationVE (unknown type)."""
+        tree = self._parse_one("MATCH (n) RETURN n.x || n.y")
+        result = resolve_ambiguous(tree)
+        cve = self._find_types(result, ast.ConcatenationValueExpression)
+        self.assertGreaterEqual(len(cve), 1, "ConcatenationVE should remain")
+
+    # ------------------------------------------------------------------
+    # ABS → typed ABS
+    # ------------------------------------------------------------------
+
+    def test_abs_numeric_resolved(self):
+        """RETURN ABS(1 + 2) → AbsoluteValueExpression wrapping NumericVE."""
+        tree = self._parse_one("RETURN ABS(1 + 2)")
+        result = resolve_ambiguous(tree)
+        avs = self._find_types(result, ast.AbsoluteValueExpression)
+        self.assertGreaterEqual(len(avs), 1, "Should have AbsoluteValueExpression")
+        self.assertIsInstance(avs[0].numeric_value_expression, ast.NumericValueExpression)
+        aaf = self._find_types(result, ast.ArithmeticAbsoluteValueFunction)
+        self.assertEqual(len(aaf), 0, "ArithmeticAbsoluteValueFunction should be gone")
+
+    def test_abs_unknown_stays(self):
+        """MATCH (n) RETURN ABS(n.x + n.y) → stays ArithmeticAbsoluteValueFunction."""
+        tree = self._parse_one("MATCH (n) RETURN ABS(n.x + n.y)")
+        result = resolve_ambiguous(tree)
+        aaf = self._find_types(result, ast.ArithmeticAbsoluteValueFunction)
+        self.assertGreaterEqual(len(aaf), 1, "ArithAbsVF should remain")
+
+    # ------------------------------------------------------------------
+    # Datetime arithmetic
+    # ------------------------------------------------------------------
+
+    def test_arithmetic_datetime_resolved(self):
+        """date + duration → DatetimeValueExpression (with ExternalContext)."""
+        ctx = ExternalContext(
+            property_types={
+                ("Person", "start_date"): GqlType.date(),
+                ("Person", "dur"): GqlType.duration(),
+            }
+        )
+        tree = self._parse_one("MATCH (n:Person) RETURN n.start_date + n.dur")
+        # Pre-annotate with context, then use internal helper
+        TypeAnnotator(external_context=ctx).annotate(tree)
+        from graphglot.transformations import _resolve_ambiguous_nodes
+
+        _resolve_ambiguous_nodes(tree)
+        dtve = self._find_types(tree, ast.DatetimeValueExpression)
+        self.assertGreaterEqual(len(dtve), 1, "Should have DatetimeValueExpression")
+        ave = self._find_types(tree, ast.ArithmeticValueExpression)
+        self.assertEqual(len(ave), 0, "ArithmeticVE should be gone")
+
+    # ------------------------------------------------------------------
+    # Preservation / idempotency
+    # ------------------------------------------------------------------
+
+    def test_span_preserved(self):
+        """Replacement node preserves source span tokens."""
+        tree = self._parse_one("RETURN 1 + 2")
+        # Find the ArithmeticVE and note its span
+        ave = self._find_types(tree, ast.ArithmeticValueExpression)
+        self.assertTrue(len(ave) > 0, "Need ArithmeticVE to test span")
+        original_span = ave[0].source_span
+        result = resolve_ambiguous(tree)
+        nve = self._find_types(result, ast.NumericValueExpression)
+        self.assertTrue(len(nve) > 0)
+        self.assertEqual(nve[0].source_span, original_span)
+
+    def test_idempotent(self):
+        """Running resolve_ambiguous twice produces same generated output."""
+        tree = self._parse_one("RETURN 1 + 2")
+        once = resolve_ambiguous(tree.deep_copy())
+        twice = resolve_ambiguous(once.deep_copy())
+        text1 = self.dialect.generate(once)
+        text2 = self.dialect.generate(twice)
+        self.assertEqual(text1, text2)
+
+    def test_resolved_type_preserved(self):
+        """Replacement node carries over _resolved_type from original."""
+        tree = self._parse_one("RETURN 1 + 2")
+        # Annotate to get the resolved type
+        TypeAnnotator().annotate(tree)
+        ave = self._find_types(tree, ast.ArithmeticValueExpression)
+        self.assertTrue(len(ave) > 0)
+        original_type = ave[0]._resolved_type
+        self.assertIsNotNone(original_type)
+        result = resolve_ambiguous(tree)
+        nve = self._find_types(result, ast.NumericValueExpression)
+        self.assertTrue(len(nve) > 0)
+        self.assertEqual(nve[0]._resolved_type, original_type)

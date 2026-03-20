@@ -224,7 +224,7 @@ class Neo4j(CypherDialect):
         | ALL_CYPHER_FEATURES
     )
 
-    TRANSFORMATIONS: t.ClassVar[list] = [with_to_next]
+    TRANSFORMATIONS: t.ClassVar[list] = [with_to_next, *CypherDialect.TRANSFORMATIONS]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         **CypherDialect.KEYWORD_OVERRIDES,

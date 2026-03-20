@@ -11,6 +11,7 @@ import typing as t
 from graphglot import ast
 from graphglot.ast.base import Expression
 from graphglot.ast.cypher import CypherWithStatement
+from graphglot.typing.types import TypeKind
 
 Transformation = t.Callable[[Expression], Expression]
 
@@ -201,3 +202,252 @@ def _build_next_statement(alqs: ast.AmbientLinearQueryStatement) -> ast.NextStat
         yield_clause=None,
         statement=cqe,
     )
+
+
+# ===========================================================================
+# resolve_ambiguous — replace AmbiguousValueExpression with concrete GQL types
+# ===========================================================================
+
+
+def resolve_ambiguous(tree: Expression) -> Expression:
+    """Replace ambiguous expression nodes with concrete GQL types.
+
+    Runs type annotation internally, then walks bottom-up to replace
+    ``ConcatenationValueExpression``, ``ArithmeticValueExpression``, and
+    ``ArithmeticAbsoluteValueFunction`` with their concrete GQL equivalents
+    when the resolved type is unambiguous.
+    """
+    from graphglot.typing import TypeAnnotator
+
+    TypeAnnotator().annotate(tree)
+    return _resolve_ambiguous_nodes(tree)
+
+
+def _resolve_ambiguous_nodes(tree: Expression) -> Expression:
+    """Replace ambiguous nodes using existing ``_resolved_type`` annotations."""
+    for node in reversed(list(tree.dfs())):
+        replacement = _try_resolve(node)
+        if replacement is None:
+            continue
+        # Preserve span tokens
+        if getattr(node, "_start_token", None) is not None:
+            replacement.__dict__["_start_token"] = node._start_token
+        if getattr(node, "_end_token", None) is not None:
+            replacement.__dict__["_end_token"] = node._end_token
+        replacement._resolved_type = node._resolved_type
+        _replace_in_parent(node, replacement)
+    return tree
+
+
+def _try_resolve(node: Expression) -> Expression | None:
+    """Dispatch to the appropriate resolution function."""
+    if isinstance(node, ast.ConcatenationValueExpression):
+        return _resolve_concatenation(node)
+    if isinstance(node, ast.ArithmeticValueExpression):
+        return _resolve_arithmetic(node)
+    if isinstance(node, ast.ArithmeticAbsoluteValueFunction):
+        return _resolve_abs(node)
+    return None
+
+
+# -- Concatenation ----------------------------------------------------------
+
+
+def _resolve_concatenation(node: ast.ConcatenationValueExpression) -> Expression | None:
+    rt = node._resolved_type
+    if rt is None or rt.is_unknown or rt.is_union:
+        return None
+    kind = rt.kind
+    if kind == TypeKind.STRING:
+        return ast.CharacterStringValueExpression._construct(
+            list_character_string_value_expression=node.operands,
+        )
+    if kind == TypeKind.BYTE_STRING:
+        return ast.ByteStringValueExpression._construct(
+            list_byte_string_primary=node.operands,
+        )
+    if kind == TypeKind.PATH:
+        return ast.PathValueExpression._construct(
+            list_path_value_primary=node.operands,
+        )
+    if kind == TypeKind.LIST:
+        return ast.ListValueExpression._construct(
+            list_list_primary=node.operands,
+        )
+    return None
+
+
+# -- Arithmetic -------------------------------------------------------------
+
+
+def _resolve_arithmetic(node: ast.ArithmeticValueExpression) -> Expression | None:
+    # Only transform when there are actual arithmetic operations
+    if not node.steps and not node.base.steps:
+        return None
+    rt = node._resolved_type
+    if rt is None or rt.is_unknown or rt.is_union:
+        return None
+    if rt.is_numeric:
+        return _resolve_arithmetic_numeric(node)
+    if rt.kind == TypeKind.DURATION:
+        return _resolve_arithmetic_duration(node)
+    if rt.is_temporal:
+        return _resolve_arithmetic_datetime(node)
+    return None
+
+
+def _resolve_arithmetic_numeric(
+    node: ast.ArithmeticValueExpression,
+) -> ast.NumericValueExpression:
+    base_term = _at_to_term(node.base)
+    steps = None
+    if node.steps:
+        steps = [
+            ast.NumericValueExpression._SignedTerm._construct(
+                sign=s.sign,
+                term=_at_to_term(s.term),
+            )
+            for s in node.steps
+        ]
+    return ast.NumericValueExpression._construct(base=base_term, steps=steps)
+
+
+def _resolve_arithmetic_duration(
+    node: ast.ArithmeticValueExpression,
+) -> ast.DurationValueExpression:
+    base_dt = _at_to_duration_term(node.base)
+    steps = None
+    if node.steps:
+        steps = [
+            ast.DurationValueExpression._SignedDurationTerm._construct(
+                sign=s.sign,
+                duration_term=_at_to_duration_term(s.term),
+            )
+            for s in node.steps
+        ]
+    return ast.DurationValueExpression._construct(base=base_dt, steps=steps)
+
+
+def _resolve_arithmetic_datetime(
+    node: ast.ArithmeticValueExpression,
+) -> ast.DatetimeValueExpression | None:
+    # Multiplicative steps on datetime don't make sense — skip
+    if node.base.steps:
+        return None
+    datetime_primary = node.base.base.arithmetic_primary
+    steps = None
+    if node.steps:
+        steps = []
+        for s in node.steps:
+            # Multiplicative steps on duration in datetime context — skip
+            if s.term.steps:
+                return None
+            duration_factor = _af_to_duration_factor(s.term.base)
+            duration_term = ast.DurationTerm._construct(
+                multiplicative_term=None,
+                base=duration_factor,
+                steps=None,
+            )
+            steps.append(
+                ast.DatetimeValueExpression._SignedDurationTerm._construct(
+                    sign=s.sign,
+                    duration_term=duration_term,
+                )
+            )
+    return ast.DatetimeValueExpression._construct(base=datetime_primary, steps=steps)
+
+
+# -- ABS --------------------------------------------------------------------
+
+
+def _resolve_abs(node: ast.ArithmeticAbsoluteValueFunction) -> Expression | None:
+    rt = node._resolved_type
+    if rt is None or rt.is_unknown or rt.is_union:
+        return None
+
+    # After bottom-up processing, inner may already be converted.
+    # If not (e.g. bare ABS(x) with no arithmetic steps), the converters
+    # handle the no-steps case correctly — they produce steps=None.
+    inner = node.arithmetic_value_expression
+
+    if rt.is_numeric:
+        if isinstance(inner, ast.NumericValueExpression):
+            nve = inner
+        elif isinstance(inner, ast.ArithmeticValueExpression):
+            nve = _resolve_arithmetic_numeric(inner)
+        else:
+            return None
+        return ast.AbsoluteValueExpression._construct(numeric_value_expression=nve)
+
+    if rt.kind == TypeKind.DURATION:
+        if isinstance(inner, ast.DurationValueExpression):
+            dve = inner
+        elif isinstance(inner, ast.ArithmeticValueExpression):
+            dve = _resolve_arithmetic_duration(inner)
+        else:
+            return None
+        return ast.DurationAbsoluteValueFunction._construct(
+            duration_value_expression=dve,
+        )
+
+    return None
+
+
+# -- Structural converters --------------------------------------------------
+
+
+def _af_to_factor(af: ast.ArithmeticFactor) -> ast.Factor:
+    return ast.Factor._construct(sign=af.sign, numeric_primary=af.arithmetic_primary)
+
+
+def _af_to_duration_factor(af: ast.ArithmeticFactor) -> ast.DurationFactor:
+    return ast.DurationFactor._construct(sign=af.sign, duration_primary=af.arithmetic_primary)
+
+
+def _at_to_term(at: ast.ArithmeticTerm) -> ast.Term:
+    steps = None
+    if at.steps:
+        steps = [
+            ast.Term._MultiplicativeFactor._construct(
+                operator=s.operator,
+                factor=_af_to_factor(s.factor),
+            )
+            for s in at.steps
+        ]
+    return ast.Term._construct(base=_af_to_factor(at.base), steps=steps)
+
+
+def _at_to_duration_term(at: ast.ArithmeticTerm) -> ast.DurationTerm:
+    steps = None
+    if at.steps:
+        steps = [
+            ast.DurationTerm._MultiplicativeFactor._construct(
+                operator=s.operator,
+                factor=_af_to_factor(s.factor),
+            )
+            for s in at.steps
+        ]
+    return ast.DurationTerm._construct(
+        multiplicative_term=None,
+        base=_af_to_duration_factor(at.base),
+        steps=steps,
+    )
+
+
+def _replace_in_parent(old: Expression, new: Expression) -> None:
+    """Replace *old* with *new* in old's parent node."""
+    parent = old._parent
+    if parent is None:
+        return
+    key = old._arg_key
+    if key is None:
+        return
+    idx = old._index
+    if idx is not None:
+        current_list = getattr(parent, key)
+        current_list[idx] = new
+    else:
+        parent.__dict__[key] = new
+    new._parent = parent
+    new._arg_key = key
+    new._index = idx

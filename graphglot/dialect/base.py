@@ -13,6 +13,7 @@ from graphglot.features import ALL_FEATURES, Feature, get_feature
 from graphglot.generator import Generator as BaseGenerator
 from graphglot.lexer import Lexer as BaseLexer, TokenType
 from graphglot.parser import Parser as BaseParser
+from graphglot.transformations import resolve_ambiguous
 from graphglot.utils.helper import seq_get
 
 if t.TYPE_CHECKING:
@@ -200,7 +201,7 @@ class Dialect(metaclass=_Dialect):
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = ALL_FEATURES
     """GQL features supported by the dialect (core + optional)."""
 
-    TRANSFORMATIONS: t.ClassVar[list[Transformation]] = []
+    TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
     """Ordered list of AST transformations to apply when normalizing parsed trees."""
 
     NON_RESERVED_WORDS: t.ClassVar[set[TokenType]] = {
