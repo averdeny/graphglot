@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "graphglot"
-version = "0.1.2"
+version = "0.1.3"
 description = "Parse, validate, and transpile graph query languages (GQL and Neo4j Cypher)."
 authors = [
     {name = "Albert Verdeny", email = "admin@graphglot.com"},

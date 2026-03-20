@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.1.3 (2026-03-20)
+
+### Bug Fixes
+
+- **ci**: Use semantic-release action to trigger PyPI publish
+  ([`f063bf5`](https://github.com/averdeny/graphglot/commit/f063bf5a12d3614b8e6290c5fa9b9587086c5df8))
+
+
 ## v0.1.2 (2026-03-20)
 
 ### Bug Fixes
