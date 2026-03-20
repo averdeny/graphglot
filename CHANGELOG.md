@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.2.0 (2026-03-20)
+
+### Bug Fixes
+
+- Include temporal types in unknown arithmetic union to prevent false-positive GA04
+  ([`bed5cde`](https://github.com/averdeny/graphglot/commit/bed5cdea662b86c13baeb79a859310984d81d96f))
+
+- Prevent temporal type propagation through multiplicative arithmetic
+  ([`8557571`](https://github.com/averdeny/graphglot/commit/8557571543148f99237615acb5628b23b3292dfb))
+
+- Propagate temporal types through ambiguous arithmetic expressions
+  ([`b0f7981`](https://github.com/averdeny/graphglot/commit/b0f79812d383a257d48c55d54431e5c9e17017d4))
+
+### Features
+
+- Transform AmbiguousValueExpression to concrete GQL types
+  ([`5684ebf`](https://github.com/averdeny/graphglot/commit/5684ebf894e0e2bb8a1aabcc8ab9460fb03dbcdd))
+
+
 ## v0.1.5 (2026-03-20)
 
 ### Bug Fixes
