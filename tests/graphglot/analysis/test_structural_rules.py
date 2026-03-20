@@ -3,7 +3,7 @@
 duplicate-alias, union-column-mismatch, mixed-query-conjunction,
 nested-aggregation, aggregation-in-non-return-context, same-pattern-node-edge-conflict,
 boolean-operand-type, orderby-aggregate-without-groupby, non-constant-skip-limit,
-invalid-delete-target, invalid-merge-pattern, exists-no-update.
+invalid-delete-target, invalid-merge-pattern, exists-no-update, type-mismatch.
 These rules fire unconditionally — they are not gated on dialect features.
 """
 
@@ -14,6 +14,8 @@ import unittest
 from graphglot.analysis import AnalysisResult, SemanticAnalyzer
 from graphglot.dialect.fullgql import FullGQL
 from graphglot.dialect.neo4j import Neo4j
+from graphglot.typing.annotator import ExternalContext
+from graphglot.typing.types import GqlType
 
 _neo4j = Neo4j()
 _gql = FullGQL()
@@ -485,3 +487,174 @@ class TestExistsNoUpdate(unittest.TestCase):
         """EXISTS { MATCH ... DELETE ... } → diagnostic."""
         result = _analyze("MATCH (n) WHERE exists { MATCH (n)-->(m) DELETE m } RETURN n")
         self.assertIn("exists-no-update", _feature_ids(result))
+
+
+# ===========================================================================
+# type-mismatch — Incompatible operand types in concat/arithmetic
+# ===========================================================================
+
+
+def _analyze_with_ctx(
+    query: str, external_context: ExternalContext | None = None
+) -> AnalysisResult:
+    analyzer = SemanticAnalyzer()
+    return analyzer.analyze(_neo4j.parse(query)[0], _neo4j, external_context=external_context)
+
+
+class TestTypeMismatch(unittest.TestCase):
+    """type-mismatch: incompatible types in concatenation and arithmetic."""
+
+    # --- Concatenation ---
+
+    def test_concat_string_and_int(self):
+        """STRING || INT → diagnostic (INT not concat-compatible)."""
+        ctx = ExternalContext(
+            property_types={("T", "s"): GqlType.string(), ("T", "x"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.s || n.x", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+        msgs = [d.message for d in result.diagnostics if d.feature_id == "type-mismatch"]
+        self.assertTrue(any("int" in m.lower() for m in msgs))
+
+    def test_concat_string_and_path(self):
+        """STRING || PATH → diagnostic (mixed concat kinds)."""
+        ctx = ExternalContext(
+            property_types={("T", "s"): GqlType.string(), ("T", "p"): GqlType.path()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.s || n.p", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_concat_strings_ok(self):
+        """STRING || STRING → no diagnostic."""
+        ctx = ExternalContext(
+            property_types={("T", "s1"): GqlType.string(), ("T", "s2"): GqlType.string()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.s1 || n.s2", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_concat_paths_ok(self):
+        """PATH || PATH → no diagnostic."""
+        result = _analyze_with_ctx("MATCH p = (a)-->(b), q = (c)-->(d) RETURN p || q")
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_concat_unknown_ok(self):
+        """Unknown properties → no diagnostic (conservative)."""
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x || n.y")
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_concat_one_known_ok(self):
+        """Only one operand typed → no diagnostic (<2 concrete)."""
+        ctx = ExternalContext(property_types={("T", "s"): GqlType.string()})
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.s || n.y", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    # --- Additive arithmetic ---
+
+    def test_add_int_and_string(self):
+        """INT + STRING → diagnostic (string is 'other')."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType.integer(), ("T", "s"): GqlType.string()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x + n.s", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_add_int_and_date(self):
+        """INT + DATE → diagnostic (numeric + temporal)."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType.integer(), ("T", "d"): GqlType.date()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x + n.d", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_add_ints_ok(self):
+        """INT + INT → no diagnostic."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType.integer(), ("T", "y"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x + n.y", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_add_int_float_ok(self):
+        """INT + FLOAT → no diagnostic (both numeric)."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType.integer(), ("T", "f"): GqlType.float_()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x + n.f", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_add_date_duration_ok(self):
+        """DATE + DURATION → no diagnostic (temporal + duration)."""
+        ctx = ExternalContext(
+            property_types={("T", "d"): GqlType.date(), ("T", "dur"): GqlType.duration()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.d + n.dur", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_add_durations_ok(self):
+        """DURATION + DURATION → no diagnostic."""
+        ctx = ExternalContext(
+            property_types={("T", "d1"): GqlType.duration(), ("T", "d2"): GqlType.duration()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.d1 + n.d2", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    # --- Multiplicative arithmetic ---
+
+    def test_mul_string_and_int(self):
+        """STRING * INT → diagnostic (string not valid)."""
+        ctx = ExternalContext(
+            property_types={("T", "s"): GqlType.string(), ("T", "x"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.s * n.x", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_mul_date_and_int(self):
+        """DATE * INT → diagnostic (temporal not valid)."""
+        ctx = ExternalContext(
+            property_types={("T", "d"): GqlType.date(), ("T", "x"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.d * n.x", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_mul_duration_and_duration(self):
+        """DURATION * DURATION → diagnostic."""
+        ctx = ExternalContext(
+            property_types={("T", "d1"): GqlType.duration(), ("T", "d2"): GqlType.duration()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.d1 * n.d2", ctx)
+        self.assertIn("type-mismatch", _feature_ids(result))
+
+    def test_mul_ints_ok(self):
+        """INT * INT → no diagnostic."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType.integer(), ("T", "y"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.x * n.y", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_mul_duration_and_int_ok(self):
+        """DURATION * INT → no diagnostic (scaling)."""
+        ctx = ExternalContext(
+            property_types={("T", "dur"): GqlType.duration(), ("T", "x"): GqlType.integer()}
+        )
+        result = _analyze_with_ctx("MATCH (n:T) RETURN n.dur * n.x", ctx)
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    # --- Edge cases ---
+
+    def test_literal_arithmetic_ok(self):
+        """RETURN 1 + 2 → no diagnostic (both numeric literals)."""
+        result = _analyze_with_ctx("RETURN 1 + 2")
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_no_steps_no_diagnostic(self):
+        """RETURN 42 → no diagnostic (no operations)."""
+        result = _analyze_with_ctx("RETURN 42")
+        self.assertNotIn("type-mismatch", _feature_ids(result))
+
+    def test_concat_node_vars_via_validate(self):
+        """End-to-end: NODE || NODE through Dialect.validate() pipeline."""
+        result = _neo4j.validate("MATCH (n), (m) RETURN n || m")
+        self.assertFalse(result.success)
+        diag_codes = {d.code for d in result.all_diagnostics}
+        self.assertIn("type-mismatch", diag_codes)

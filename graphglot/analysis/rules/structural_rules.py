@@ -13,6 +13,7 @@ non-constant-skip-limit            — Non-constant expression in SKIP/LIMIT
 invalid-delete-target              — Non-variable expression in DELETE
 invalid-merge-pattern              — Invalid MERGE relationship pattern
 exists-no-update                   — Data-modifying statement inside EXISTS
+type-mismatch                      — Incompatible operand types in concat/arithmetic
 """
 
 from __future__ import annotations
@@ -726,4 +727,143 @@ def check_exists_no_update(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
                 )
                 break  # one diagnostic per EXISTS is enough
 
+    return diagnostics
+
+
+# ---------------------------------------------------------------------------
+# type-mismatch — §20.13, §20.21, §20.23: Incompatible operand types in
+# concatenation (||) and arithmetic (+, -, *, /)
+# ---------------------------------------------------------------------------
+
+_CONCAT_KINDS = frozenset({TypeKind.STRING, TypeKind.BYTE_STRING, TypeKind.PATH, TypeKind.LIST})
+
+
+def _is_concrete(rt: GqlType | None) -> bool:
+    """True when type is known and concrete enough to check for mismatches."""
+    if rt is None or rt.is_unknown or rt.is_error or rt.is_union:
+        return False
+    if rt.kind in (TypeKind.ANY, TypeKind.NULL):
+        return False
+    return True
+
+
+def _arithmetic_family(tp: GqlType) -> str:
+    if tp.is_numeric:
+        return "numeric"
+    if tp.is_temporal:
+        return "temporal"
+    if tp.kind == TypeKind.DURATION:
+        return "duration"
+    return "other"
+
+
+def _check_concat_mismatch(node: ast.ConcatenationValueExpression) -> SemanticDiagnostic | None:
+    concrete: list[GqlType] = [
+        t.cast(GqlType, op._resolved_type)
+        for op in node.operands
+        if _is_concrete(op._resolved_type)
+    ]
+    if len(concrete) < 2:
+        return None
+    for rt in concrete:
+        if rt.kind not in _CONCAT_KINDS:
+            msg = (
+                "Concatenation (||) requires string, byte string, list,"
+                f" or path operands, got {rt.kind.value}."
+            )
+            return SemanticDiagnostic(feature_id="type-mismatch", message=msg, node=node)
+    kinds = {rt.kind for rt in concrete}
+    if len(kinds) > 1:
+        mixed = ", ".join(sorted(k.value for k in kinds))
+        msg = f"Concatenation (||) operands have incompatible types: {mixed}."
+        return SemanticDiagnostic(feature_id="type-mismatch", message=msg, node=node)
+    return None
+
+
+def _collect_additive_types(node: ast.ArithmeticValueExpression) -> list[GqlType]:
+    types: list[GqlType] = []
+    if _is_concrete(node.base._resolved_type):
+        types.append(node.base._resolved_type)  # type: ignore[arg-type]
+    for step in node.steps or ():
+        if _is_concrete(step.term._resolved_type):
+            types.append(step.term._resolved_type)  # type: ignore[arg-type]
+    return types
+
+
+def _check_additive_mismatch(node: ast.ArithmeticValueExpression) -> SemanticDiagnostic | None:
+    if not node.steps:
+        return None
+    types = _collect_additive_types(node)
+    if len(types) < 2:
+        return None
+    families = {_arithmetic_family(tp) for tp in types}
+    if "other" in families:
+        other = next(tp for tp in types if _arithmetic_family(tp) == "other")
+        return SemanticDiagnostic(
+            feature_id="type-mismatch",
+            message=f"Arithmetic (+/-) not supported for {other.kind.value}.",
+            node=node,
+        )
+    if "numeric" in families and families & {"temporal", "duration"}:
+        return SemanticDiagnostic(
+            feature_id="type-mismatch",
+            message="Cannot mix numeric and temporal/duration types in arithmetic (+/-).",
+            node=node,
+        )
+    return None
+
+
+def _collect_multiplicative_types(node: ast.ArithmeticTerm) -> list[GqlType]:
+    types: list[GqlType] = []
+    if _is_concrete(node.base._resolved_type):
+        types.append(node.base._resolved_type)  # type: ignore[arg-type]
+    for step in node.steps or ():
+        if _is_concrete(step.factor._resolved_type):
+            types.append(step.factor._resolved_type)  # type: ignore[arg-type]
+    return types
+
+
+def _check_multiplicative_mismatch(node: ast.ArithmeticTerm) -> SemanticDiagnostic | None:
+    if not node.steps:
+        return None
+    types = _collect_multiplicative_types(node)
+    if len(types) < 2:
+        return None
+    families = {_arithmetic_family(tp) for tp in types}
+    if "other" in families:
+        other = next(tp for tp in types if _arithmetic_family(tp) == "other")
+        return SemanticDiagnostic(
+            feature_id="type-mismatch",
+            message=f"Arithmetic (*/) not supported for {other.kind.value}.",
+            node=node,
+        )
+    if "temporal" in families:
+        return SemanticDiagnostic(
+            feature_id="type-mismatch",
+            message="Temporal types do not support multiplication/division.",
+            node=node,
+        )
+    if sum(1 for tp in types if tp.kind == TypeKind.DURATION) >= 2:
+        return SemanticDiagnostic(
+            feature_id="type-mismatch",
+            message="Cannot multiply/divide two duration values.",
+            node=node,
+        )
+    return None
+
+
+@structural_rule("type-mismatch")
+def check_type_mismatch(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
+    """Detect incompatible operand types in concatenation and arithmetic."""
+    diagnostics: list[SemanticDiagnostic] = []
+    for node in ctx.expression.dfs():
+        diag = None
+        if isinstance(node, ast.ConcatenationValueExpression):
+            diag = _check_concat_mismatch(node)
+        elif isinstance(node, ast.ArithmeticValueExpression):
+            diag = _check_additive_mismatch(node)
+        elif isinstance(node, ast.ArithmeticTerm):
+            diag = _check_multiplicative_mismatch(node)
+        if diag is not None:
+            diagnostics.append(diag)
     return diagnostics
