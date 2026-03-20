@@ -49,6 +49,14 @@ class TestConcatenationResolution:
         assert cve is not None
         assert cve._resolved_type.kind == TypeKind.STRING
 
+    def test_byte_string_concat_with_context(self):
+        """BYTE_STRING property context should resolve to BYTE_STRING."""
+        ctx = ExternalContext(property_types={("Blob", "payload"): GqlType.byte_string()})
+        root = _annotate("MATCH (n:Blob) RETURN n.payload || n.payload", external_context=ctx)
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.kind == TypeKind.BYTE_STRING
+
 
 class TestArithmeticResolution:
     def test_numeric_arithmetic_known(self):

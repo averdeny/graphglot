@@ -28,6 +28,9 @@ def type_concatenation_value_expression(annotator, expr):
         if ot.kind == TypeKind.STRING:
             return GqlType.string()
     for ot in operand_types:
+        if ot.kind == TypeKind.BYTE_STRING:
+            return GqlType.byte_string()
+    for ot in operand_types:
         if ot.kind == TypeKind.PATH:
             return GqlType.path()
     for ot in operand_types:
@@ -36,7 +39,9 @@ def type_concatenation_value_expression(annotator, expr):
 
     # All unknown — return union of possibilities
     if all(ot.is_unknown for ot in operand_types) or not operand_types:
-        return GqlType.union(GqlType.string(), GqlType.list_(), GqlType.path())
+        return GqlType.union(
+            GqlType.string(), GqlType.byte_string(), GqlType.list_(), GqlType.path()
+        )
 
     return GqlType.unknown()
 
