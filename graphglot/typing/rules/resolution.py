@@ -2,7 +2,7 @@
 
 At parse time, some expressions are syntactically ambiguous:
 - ``a || b`` could be string, list, or path concatenation
-- ``a + b`` could be numeric or duration arithmetic
+- ``a + b`` could be numeric, duration, or temporal arithmetic
 - ``ABS(x)`` could be numeric or duration absolute value
 
 These rules resolve the ambiguity based on operand types when possible,
@@ -61,14 +61,18 @@ def type_arithmetic_value_expression(annotator, expr):
         return base_type if base_type.kind != TypeKind.NUMERIC else GqlType.numeric()
     if base_type.kind == TypeKind.DURATION:
         return GqlType.duration()
+    if base_type.is_temporal:
+        return base_type
 
-    # Check step operands
+    # Check step operands (_SignedTerm has no type rule, so read from its inner term)
     for step in expr.steps:
-        step_type = step._resolved_type if step._resolved_type else GqlType.unknown()
+        step_type = step.term._resolved_type if step.term._resolved_type else GqlType.unknown()
         if step_type.is_numeric:
             return GqlType.numeric()
         if step_type.kind == TypeKind.DURATION:
             return GqlType.duration()
+        if step_type.is_temporal:
+            return step_type
 
     if base_type.is_unknown:
         return GqlType.union(GqlType.numeric(), GqlType.duration())
@@ -85,6 +89,8 @@ def type_arithmetic_term(annotator, expr):
         return base_type
     if base_type.kind == TypeKind.DURATION:
         return GqlType.duration()
+    if base_type.is_temporal:
+        return base_type
     return GqlType.unknown()
 
 

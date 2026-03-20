@@ -1,5 +1,7 @@
 """Tests for ambiguous expression resolution."""
 
+import pytest
+
 from graphglot.ast import expressions as ast
 from graphglot.dialect.base import Dialect
 from graphglot.typing import ExternalContext, GqlType, TypeAnnotator, TypeKind
@@ -85,3 +87,63 @@ class TestArithmeticResolution:
         t = ri.aggregating_value_expression._resolved_type
         assert t is not None
         assert t.is_unknown, f"expected unknown, got {t!r}"
+
+    def test_temporal_propagates_through_arithmetic_term(self):
+        """DATE property should propagate through ArithmeticTerm (not become UNKNOWN)."""
+        ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})
+        root = _annotate("MATCH (n:Ev) RETURN n.d", external_context=ctx)
+        at = root.find_first(ast.ArithmeticTerm)
+        assert at is not None
+        assert at._resolved_type.kind == TypeKind.DATE
+
+    @pytest.mark.parametrize(
+        "prop,gql_type,expected_kind",
+        [
+            ("d", GqlType.date(), TypeKind.DATE),
+            ("t", GqlType.time(), TypeKind.TIME),
+            ("ts", GqlType.datetime_(), TypeKind.DATETIME),
+            ("ldt", GqlType.local_datetime(), TypeKind.LOCAL_DATETIME),
+            ("lt", GqlType.local_time(), TypeKind.LOCAL_TIME),
+        ],
+        ids=["DATE", "TIME", "DATETIME", "LOCAL_DATETIME", "LOCAL_TIME"],
+    )
+    def test_temporal_base_propagates_through_addition(self, prop, gql_type, expected_kind):
+        """Temporal base + unknown step should preserve the temporal type."""
+        ctx = ExternalContext(property_types={("Ev", prop): gql_type})
+        root = _annotate(f"MATCH (n:Ev) RETURN n.{prop} + n.x", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.kind == expected_kind
+
+    def test_temporal_in_step_propagates(self):
+        """UNKNOWN + DATE should resolve to DATE via step type extraction."""
+        ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})
+        root = _annotate("MATCH (n:Ev) RETURN n.x + n.d", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.kind == TypeKind.DATE
+
+    def test_numeric_in_step_propagates(self):
+        """UNKNOWN + INT should resolve to numeric via step type extraction."""
+        ctx = ExternalContext(property_types={("Ev", "x"): GqlType(kind=TypeKind.INT)})
+        root = _annotate("MATCH (n:Ev) RETURN n.y + n.x", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_numeric
+
+    def test_duration_in_step_propagates(self):
+        """UNKNOWN + DURATION should resolve to duration via step type extraction."""
+        ctx = ExternalContext(property_types={("Ev", "dur"): GqlType.duration()})
+        root = _annotate("MATCH (n:Ev) RETURN n.y + n.dur", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.kind == TypeKind.DURATION
+
+    def test_temporal_bare_property_passthrough(self):
+        """DATE property with no operators should resolve to DATE at ReturnItem level."""
+        ctx = ExternalContext(property_types={("Ev", "d"): GqlType.date()})
+        root = _annotate("MATCH (n:Ev) RETURN n.d", external_context=ctx)
+        ri = next(root.find_all(ast.ReturnItem))
+        t = ri.aggregating_value_expression._resolved_type
+        assert t is not None
+        assert t.kind == TypeKind.DATE
