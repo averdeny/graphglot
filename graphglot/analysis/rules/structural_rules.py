@@ -732,7 +732,13 @@ def check_exists_no_update(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
 
 # ---------------------------------------------------------------------------
 # type-mismatch — §20.13, §20.21, §20.23: Incompatible operand types in
-# concatenation (||) and arithmetic (+, -, *, /)
+# concatenation (||) and arithmetic (+, -, *, /) (compatibility layer).
+#
+# This is layer 2 of two-layer operand type validation.  Layer 1
+# (typing/rules/resolution.py) rejects operands entirely implausible for the
+# operation.  This layer catches operands that are individually plausible but
+# incompatible with each other (e.g. INT + DATE, STRING || PATH).
+# See Dialect.validate for the full picture.
 # ---------------------------------------------------------------------------
 
 _CONCAT_KINDS = frozenset({TypeKind.STRING, TypeKind.BYTE_STRING, TypeKind.PATH, TypeKind.LIST})

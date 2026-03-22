@@ -74,6 +74,24 @@ class TestConcatenationResolution:
             f"mixed path||string should be unknown, got {cve._resolved_type!r}"
         )
 
+    def test_path_concat_node_returns_unknown(self):
+        """p || n where n is a NODE should return unknown (NODE not concat-compatible)."""
+        root = _annotate("MATCH p = (a)-[r]->(b), (n) RETURN p || n")
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.is_unknown, (
+            f"PATH || NODE should be unknown, got {cve._resolved_type!r}"
+        )
+
+    def test_node_concat_node_returns_unknown(self):
+        """n || m where both are NODEs should return unknown (NODE not concat-compatible)."""
+        root = _annotate("MATCH (n), (m) RETURN n || m")
+        cve = root.find_first(ast.ConcatenationValueExpression)
+        assert cve is not None
+        assert cve._resolved_type.is_unknown, (
+            f"NODE || NODE should be unknown, got {cve._resolved_type!r}"
+        )
+
 
 class TestArithmeticResolution:
     def test_numeric_arithmetic_known(self):
@@ -208,6 +226,93 @@ class TestArithmeticResolution:
         assert at is not None
         assert at.steps, "expected multiplicative steps"
         assert at._resolved_type.kind == TypeKind.DURATION
+
+    def test_path_plus_int_returns_unknown(self):
+        """MATCH p = ... RETURN p + 1 → AVE should be unknown (PATH not arithmetic)."""
+        root = _annotate("MATCH p = (a)-[r]->(b) RETURN p + 1")
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_unknown, (
+            f"PATH + INT should be unknown, got {ave._resolved_type!r}"
+        )
+
+    def test_string_plus_int_returns_unknown(self):
+        """STRING + INT → AVE should be unknown."""
+        ctx = ExternalContext(
+            property_types={("T", "s"): GqlType.string(), ("T", "x"): GqlType(kind=TypeKind.INT)}
+        )
+        root = _annotate("MATCH (n:T) RETURN n.s + n.x", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_unknown
+
+    def test_int_plus_string_returns_unknown(self):
+        """INT + STRING → AVE should be unknown (string step)."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType(kind=TypeKind.INT), ("T", "s"): GqlType.string()}
+        )
+        root = _annotate("MATCH (n:T) RETURN n.x + n.s", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_unknown
+
+    def test_int_times_string_returns_unknown(self):
+        """INT * STRING → AT should be unknown."""
+        ctx = ExternalContext(
+            property_types={("T", "x"): GqlType(kind=TypeKind.INT), ("T", "s"): GqlType.string()}
+        )
+        root = _annotate("MATCH (n:T) RETURN n.x * n.s", external_context=ctx)
+        at = root.find_first(ast.ArithmeticTerm)
+        assert at is not None
+        assert at.steps, "expected multiplicative steps"
+        assert at._resolved_type.is_unknown
+
+    def test_nested_numeric_times_string_returns_unknown(self):
+        """(INT + INT) * STRING → outer AT should be unknown."""
+        ctx = ExternalContext(
+            property_types={
+                ("T", "x"): GqlType(kind=TypeKind.INT),
+                ("T", "y"): GqlType(kind=TypeKind.INT),
+                ("T", "s"): GqlType.string(),
+            }
+        )
+        root = _annotate("MATCH (n:T) RETURN (n.x + n.y) * n.s", external_context=ctx)
+        at = root.find_first(ast.ArithmeticTerm)
+        assert at is not None
+        assert at.steps, "expected multiplicative steps"
+        assert at._resolved_type.is_unknown
+
+    def test_string_plus_nested_numeric_returns_unknown(self):
+        """STRING + INT*INT → AVE should be unknown (string base)."""
+        ctx = ExternalContext(
+            property_types={
+                ("T", "s"): GqlType.string(),
+                ("T", "x"): GqlType(kind=TypeKind.INT),
+                ("T", "y"): GqlType(kind=TypeKind.INT),
+            }
+        )
+        root = _annotate("MATCH (n:T) RETURN n.s + n.x * n.y", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_unknown
+
+    def test_unknown_plus_int_still_numeric(self):
+        """UNKNOWN + INT → should still resolve to numeric (regression guard)."""
+        ctx = ExternalContext(property_types={("T", "x"): GqlType(kind=TypeKind.INT)})
+        root = _annotate("MATCH (n:T) RETURN n.y + n.x", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.is_numeric
+
+    def test_date_plus_duration_still_temporal(self):
+        """DATE + DURATION → should still resolve to DATE (regression guard)."""
+        ctx = ExternalContext(
+            property_types={("Ev", "d"): GqlType.date(), ("Ev", "dur"): GqlType.duration()}
+        )
+        root = _annotate("MATCH (n:Ev) RETURN n.d + n.dur", external_context=ctx)
+        ave = root.find_first(ast.ArithmeticValueExpression)
+        assert ave is not None
+        assert ave._resolved_type.kind == TypeKind.DATE
 
     def test_temporal_bare_property_passthrough(self):
         """DATE property with no operators should resolve to DATE at ReturnItem level."""

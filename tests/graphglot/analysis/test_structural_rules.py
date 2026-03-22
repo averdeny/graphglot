@@ -658,3 +658,17 @@ class TestTypeMismatch(unittest.TestCase):
         self.assertFalse(result.success)
         diag_codes = {d.code for d in result.all_diagnostics}
         self.assertIn("type-mismatch", diag_codes)
+
+    def test_path_plus_int_via_validate(self):
+        """End-to-end: PATH + INT through Dialect.validate() pipeline."""
+        result = _neo4j.validate("MATCH p = (a)-->(b) RETURN p + 1")
+        self.assertFalse(result.success)
+        diag_codes = {d.code for d in result.all_diagnostics}
+        self.assertIn("type-mismatch", diag_codes)
+
+    def test_path_concat_node_via_validate(self):
+        """End-to-end: PATH || NODE through Dialect.validate() pipeline."""
+        result = _neo4j.validate("MATCH p = (a)-->(b), (n) RETURN p || n")
+        self.assertFalse(result.success)
+        diag_codes = {d.code for d in result.all_diagnostics}
+        self.assertIn("type-mismatch", diag_codes)

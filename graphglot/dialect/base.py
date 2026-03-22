@@ -457,6 +457,24 @@ class Dialect(metaclass=_Dialect):
         - the error if any stage failed
         - the set of GQL features required by the query (on success)
         - semantic diagnostics (on analysis failure)
+
+        **Operand type checking** uses two layers that run at different stages:
+
+        1. *Plausibility* (transform stage, ``typing/rules/resolution.py``):
+           each ambiguous expression has an allowlist of type kinds that can
+           participate at all.  If any operand is concretely outside the
+           allowlist (e.g. STRING in arithmetic, NODE in concat) the resolver
+           bails to ``unknown()`` so the node is **not** transformed into a
+           concrete GQL type.
+
+        2. *Compatibility* (analysis stage, ``type-mismatch`` structural rule):
+           catches operands that are individually plausible but incompatible
+           *with each other* (e.g. ``INT + DATE`` — both are in the arithmetic
+           allowlist but numeric + temporal is invalid).
+
+        Both layers are needed: layer 1 prevents the transform from hiding
+        errors by silently converting invalid expressions, layer 2 detects
+        semantic mismatches between valid-looking operands.
         """
         from graphglot.analysis import SemanticAnalyzer
         from graphglot.error import FeatureError, ParseError, TokenError, ValidationError
