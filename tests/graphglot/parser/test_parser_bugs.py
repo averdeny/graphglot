@@ -164,3 +164,60 @@ class TestRoundTripBooleanExpressions(unittest.TestCase):
 
     def test_nested_list_round_trip(self):
         self._round_trip("RETURN [[1, 2], [3]] AS nested")
+
+
+class TestPredicateInValueExpression(unittest.TestCase):
+    """Predicates in ValueExpression contexts (e.g., DELETE n:Person)."""
+
+    def setUp(self):
+        self.helper = ParserTestHelper()
+
+    def test_delete_labeled_predicate(self):
+        """MATCH (n) DELETE n:Person — the originally reported bug."""
+        expr = self.helper.parse_single("MATCH (n) DELETE n:Person", ast.GqlProgram)
+        ds = next(expr.find_all(ast.DeleteStatement))
+        item = ds.delete_item_list.list_delete_item[0]
+        lp = next(item.find_all(ast.LabeledPredicate))
+        self.assertEqual(lp.element_variable_reference.binding_variable.name, "n")
+
+    def test_delete_labeled_predicate_multi(self):
+        """MATCH (n) DELETE n:Person, m — multiple delete items with label."""
+        expr = self.helper.parse_single("MATCH (n), (m) DELETE n:Person, m", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_return_labeled_predicate(self):
+        """MATCH (n) RETURN n:Person AS lp — LabeledPredicate in RETURN."""
+        expr = self.helper.parse_single("MATCH (n) RETURN n:Person AS lp", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_return_is_null(self):
+        """RETURN n IS NULL AS r — NullPredicate."""
+        expr = self.helper.parse_single("MATCH (n) RETURN n IS NULL AS r", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_return_comparison(self):
+        """RETURN n = 5 AS r — ComparisonPredicate."""
+        expr = self.helper.parse_single("MATCH (n) RETURN n = 5 AS r", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_return_boolean_and(self):
+        """RETURN n AND m AS r — BooleanValueExpression with variables."""
+        expr = self.helper.parse_single("MATCH (n), (m) RETURN n AND m AS r", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_return_is_directed(self):
+        """MATCH ()-[r]->() RETURN r IS DIRECTED AS d — DirectedPredicate."""
+        expr = self.helper.parse_single(
+            "MATCH ()-[r]->() RETURN r IS DIRECTED AS d", ast.GqlProgram
+        )
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_bare_variable_no_regression(self):
+        """RETURN n AS r — bare variable still works."""
+        expr = self.helper.parse_single("MATCH (n) RETURN n AS r", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)
+
+    def test_arithmetic_no_regression(self):
+        """RETURN n + 5 AS r — arithmetic still works."""
+        expr = self.helper.parse_single("MATCH (n) RETURN n + 5 AS r", ast.GqlProgram)
+        self.assertIsInstance(expr, ast.GqlProgram)

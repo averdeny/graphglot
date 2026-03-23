@@ -274,14 +274,38 @@ def parse_parenthesized_value_expression(parser: Parser) -> ast.ParenthesizedVal
     )
 
 
+# Tokens that indicate a boolean/comparison/predicate operator follows a CVE.
+# When ValueExpression sees these after a successful CVE parse, it must
+# re-parse as BVE so the standard predicate/boolean chain handles them.
+_BVE_UPGRADE_TOKENS: set[TokenType] = {
+    # Comparison operators → ComparisonPredicate
+    TokenType.EQUALS_OPERATOR,
+    TokenType.NOT_EQUALS_OPERATOR,
+    TokenType.LEFT_ANGLE_BRACKET,
+    TokenType.RIGHT_ANGLE_BRACKET,
+    TokenType.LESS_THAN_OR_EQUALS_OPERATOR,
+    TokenType.GREATER_THAN_OR_EQUALS_OPERATOR,
+    # Boolean operators → BooleanValueExpression
+    TokenType.AND,
+    TokenType.OR,
+    TokenType.XOR,
+    # Predicate continuations (IS NULL, IS LABELED, IS DIRECTED, etc.)
+    TokenType.IS,
+    # LabeledPredicate colon form (n:Person)
+    TokenType.COLON,
+}
+
+
 @parses(ast.ValueExpression)
 def parse_value_expression(parser: Parser) -> ast.ValueExpression:
-    candidates_value_expression = (
-        parser.get_parser(ast.CommonValueExpression),
-        parser.get_parser(ast.BooleanValueExpression),
-    )
-    (result,) = parser.seq(candidates_value_expression)
-    return result
+    saved = parser._index
+    cve = parser.try_parse(parser.get_parser(ast.CommonValueExpression))
+    if cve is not None:
+        if not parser._match(_BVE_UPGRADE_TOKENS):
+            return t.cast(ast.ValueExpression, cve)
+        # Predicate/boolean/comparison follows — retreat and re-parse as BVE
+        parser._retreat(saved)
+    return parser.get_parser(ast.BooleanValueExpression)(parser)
 
 
 @parses(ast.LengthExpression)
