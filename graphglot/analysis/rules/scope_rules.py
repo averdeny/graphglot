@@ -6,6 +6,8 @@ GA09 — Comparison of paths
 GE04 — Graph parameters
 GE05 — Binding table parameters
 GE09 — Horizontal aggregation
+GP14 — Binding tables as procedure arguments
+GP15 — Graphs as procedure arguments
 GQ17 — Element-wise group variable operations
 """
 
@@ -520,5 +522,71 @@ def check_binding_table_parameters(ctx: AnalysisContext) -> list[SemanticDiagnos
                     node=param,
                 )
             )
+
+    return diagnostics
+
+
+# ---------------------------------------------------------------------------
+# GP15 — Graphs as procedure arguments
+# ---------------------------------------------------------------------------
+
+
+@analysis_rule("GP15")
+def check_graphs_as_procedure_arguments(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
+    """Without GP15, procedure arguments shall not be graph-typed.
+
+    See ISO/IEC 39075:2024 §15.3, Conformance Rule 2. Detects
+    GraphReferenceValueExpression nodes inside procedure argument lists.
+    """
+    diagnostics: list[SemanticDiagnostic] = []
+
+    for call in ctx.expression.find_all(ast.NamedProcedureCall):
+        if call.procedure_argument_list is None:
+            continue
+        for arg in call.procedure_argument_list.list_procedure_argument:
+            if arg.find_first(ast.GraphReferenceValueExpression):
+                diagnostics.append(
+                    SemanticDiagnostic(
+                        feature_id="GP15",
+                        message=(
+                            "Procedure argument is graph-typed. "
+                            "Feature GP15 (graphs as procedure arguments) is required."
+                        ),
+                        node=arg,
+                    )
+                )
+
+    return diagnostics
+
+
+# ---------------------------------------------------------------------------
+# GP14 — Binding tables as procedure arguments
+# ---------------------------------------------------------------------------
+
+
+@analysis_rule("GP14")
+def check_binding_tables_as_procedure_arguments(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
+    """Without GP14, procedure arguments shall not be binding-table-typed.
+
+    See ISO/IEC 39075:2024 §15.3, Conformance Rule 3. Detects
+    BindingTableReferenceValueExpression nodes inside procedure argument lists.
+    """
+    diagnostics: list[SemanticDiagnostic] = []
+
+    for call in ctx.expression.find_all(ast.NamedProcedureCall):
+        if call.procedure_argument_list is None:
+            continue
+        for arg in call.procedure_argument_list.list_procedure_argument:
+            if arg.find_first(ast.BindingTableReferenceValueExpression):
+                diagnostics.append(
+                    SemanticDiagnostic(
+                        feature_id="GP14",
+                        message=(
+                            "Procedure argument is binding-table-typed. "
+                            "Feature GP14 (binding tables as procedure arguments) is required."
+                        ),
+                        node=arg,
+                    )
+                )
 
     return diagnostics

@@ -1072,13 +1072,17 @@ GRAPH g = VALUE { MATCH (n) RETURN n } MATCH (m) RETURN m
 
 Allows binding table values to be passed as arguments to named procedure calls.
 
-*INACTIVE*
+```gql
+CALL my_proc(TABLE t)
+```
 
 ### GP15 — Graphs as procedure arguments
 
 Allows graph values to be passed as arguments to named procedure calls.
 
-*INACTIVE*
+```gql
+CALL my_proc(GRAPH CURRENT_GRAPH)
+```
 
 ### GP16 — AT schema clause
 

@@ -273,8 +273,8 @@ GP12 = _opt(
 GP13 = _opt(
     "GP13", "Procedure-local graph variable definitions: graph variables based on subqueries"
 )
-GP14 = _opt("GP14", "Binding tables as procedure arguments", FeatureStatus.INACTIVE)
-GP15 = _opt("GP15", "Graphs as procedure arguments", FeatureStatus.INACTIVE)
+GP14 = _opt("GP14", "Binding tables as procedure arguments")
+GP15 = _opt("GP15", "Graphs as procedure arguments")
 GP16 = _opt("GP16", "AT schema clause")
 GP17 = _opt("GP17", "Binding variable definition block")
 GP18 = _opt("GP18", "Catalog and data statement mixing")

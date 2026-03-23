@@ -1,4 +1,4 @@
-"""Tests for semantic analysis rules (GA04, GA07, GA09, GE04, GE05, GE09, GQ17)."""
+"""Tests for semantic analysis rules (GA04, GA07, GA09, GE04, GE05, GE09, GP14, GP15, GQ17)."""
 
 from __future__ import annotations
 
@@ -38,6 +38,14 @@ class _NoGE05(Dialect):
 
 class _NoGE09(Dialect):
     SUPPORTED_FEATURES = ALL_FEATURES - {F.GE09}
+
+
+class _NoGP14(Dialect):
+    SUPPORTED_FEATURES = ALL_FEATURES - {F.GP14}
+
+
+class _NoGP15(Dialect):
+    SUPPORTED_FEATURES = ALL_FEATURES - {F.GP15}
 
 
 class _NoGQ17(Dialect):
@@ -489,3 +497,74 @@ class TestFeatureReportingQuery(unittest.TestCase):
         # Core features the query should need
         for fid in ("GQ02", "GQ20", "GV55"):
             self.assertIn(fid, feature_ids, f"Expected feature {fid} not found")
+
+
+# ===========================================================================
+# GP15 — Graphs as procedure arguments
+# ===========================================================================
+
+
+class TestGP15(unittest.TestCase):
+    """GP15: without this feature, procedure arguments shall not be graph-typed.
+
+    ISO/IEC 39075:2024 §15.3 Conformance Rule 2.
+    """
+
+    def test_graph_argument_produces_diagnostic(self):
+        """CALL proc(GRAPH CURRENT_GRAPH) with GP15 absent → diagnostic."""
+        result = _analyze("CALL proc(GRAPH CURRENT_GRAPH)", _NoGP15())
+        self.assertIn("GP15", _feature_ids(result))
+
+    def test_non_graph_argument_no_diagnostic(self):
+        """CALL proc(1) with GP15 absent → no GP15 diagnostic."""
+        result = _analyze("CALL proc(1)", _NoGP15())
+        self.assertNotIn("GP15", _feature_ids(result))
+
+    def test_full_dialect_allows_graph_argument(self):
+        """Full dialect (GP15 supported) → no diagnostic."""
+        result = _analyze("CALL proc(GRAPH CURRENT_GRAPH)", _Full())
+        gp15_diags = [d for d in result.diagnostics if d.feature_id == "GP15"]
+        self.assertEqual(gp15_diags, [])
+
+    def test_no_arguments_no_diagnostic(self):
+        """CALL proc() with GP15 absent → no diagnostic."""
+        result = _analyze("CALL proc()", _NoGP15())
+        self.assertNotIn("GP15", _feature_ids(result))
+
+    def test_parenthesized_graph_argument_produces_diagnostic(self):
+        """CALL proc((GRAPH CURRENT_GRAPH)) — nested inside parens → still caught."""
+        result = _analyze("CALL proc((GRAPH CURRENT_GRAPH))", _NoGP15())
+        self.assertIn("GP15", _feature_ids(result))
+
+
+# ===========================================================================
+# GP14 — Binding tables as procedure arguments
+# ===========================================================================
+
+
+class TestGP14(unittest.TestCase):
+    """GP14: without this feature, procedure arguments shall not be binding-table-typed.
+
+    ISO/IEC 39075:2024 §15.3 Conformance Rule 3.
+    """
+
+    def test_binding_table_argument_produces_diagnostic(self):
+        """CALL proc(TABLE t) with GP14 absent → diagnostic."""
+        result = _analyze("CALL proc(TABLE t)", _NoGP14())
+        self.assertIn("GP14", _feature_ids(result))
+
+    def test_non_table_argument_no_diagnostic(self):
+        """CALL proc(1) with GP14 absent → no GP14 diagnostic."""
+        result = _analyze("CALL proc(1)", _NoGP14())
+        self.assertNotIn("GP14", _feature_ids(result))
+
+    def test_full_dialect_allows_table_argument(self):
+        """Full dialect (GP14 supported) → no diagnostic."""
+        result = _analyze("CALL proc(TABLE t)", _Full())
+        gp14_diags = [d for d in result.diagnostics if d.feature_id == "GP14"]
+        self.assertEqual(gp14_diags, [])
+
+    def test_parenthesized_table_argument_produces_diagnostic(self):
+        """CALL proc((TABLE t)) — nested inside parens → still caught."""
+        result = _analyze("CALL proc((TABLE t))", _NoGP14())
+        self.assertIn("GP14", _feature_ids(result))

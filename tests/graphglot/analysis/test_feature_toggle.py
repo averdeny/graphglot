@@ -4,7 +4,7 @@ Tests for unsupported feature validation during semantic analysis.
 Analogous to tests/graphglot/lexer/test_feature_toggle.py and
 tests/graphglot/parser/test_feature_toggle.py, but for features
 whose restrictions are enforced by the semantic analysis module
-(GA04, GA07, GA09, GE04, GE05, GE09, GQ17).
+(GA04, GA07, GA09, GE04, GE05, GE09, GP14, GP15, GQ17).
 """
 
 import pytest
@@ -109,6 +109,18 @@ TEST_CASES = [
         F.GE05,
         "FOR x IN TABLE $t RETURN x",
         id="GE05_binding_table_parameter_in_for",
+    ),
+    # GP15: Graphs as procedure arguments
+    pytest.param(
+        F.GP15,
+        "CALL proc(GRAPH CURRENT_GRAPH)",
+        id="GP15_graph_as_procedure_argument",
+    ),
+    # GP14: Binding tables as procedure arguments
+    pytest.param(
+        F.GP14,
+        "CALL proc(TABLE t)",
+        id="GP14_binding_table_as_procedure_argument",
     ),
 ]
 
