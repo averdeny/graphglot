@@ -560,18 +560,18 @@ MATCH (n:Person) SET n:Employee
 
 ### GD03 — DELETE statement: subquery support
 
-Allows the `DELETE` statement to accept a binding table subquery (`TABLE { ... }`) as the source of elements to delete.
+Allows nested subqueries inside `DELETE` items. Implies GD04.
 
 ```gql
-DELETE TABLE { MATCH (n) RETURN n }
+DELETE VALUE { MATCH (n:Temp) RETURN n }
 ```
 
 ### GD04 — DELETE statement: simple expression support
 
-Allows `DELETE` to target a property reference (e.g., `n.prop`) to remove a single property from an element.
+Allows `DELETE` items to be arbitrary expressions, not just variable references.
 
 ```gql
-DELETE n.prop
+MATCH (n) DELETE CASE WHEN n.expired THEN n ELSE null END
 ```
 
 ## Expressions

@@ -12,7 +12,7 @@ distinct-order-by-non-projected   — ORDER BY key not in RETURN with DISTINCT
 # (1) The walker runs once per analysis (cached by _get_scope_diagnostics);
 #     each @structural_rule entry point filters from the cached result.
 #
-# (2) _walk_clause is a ~95-line dispatch table (10 clause-type branches).
+# (2) _walk_clause is a large dispatch table (one branch per clause type).
 #     If more clause types are added, consider extracting a handler registry
 #     or breaking it into per-clause functions.
 #
@@ -438,7 +438,7 @@ def _walk_insert_or_create(
 
 def _walk_clause(stmt: ast.Expression, state: _ScopeState) -> None:
     """Walk a single clause/statement, updating scope state."""
-    # WATCHPOINT (2): ~95-line dispatch table.  If adding a new clause type,
+    # WATCHPOINT (2): large dispatch table.  If adding a new clause type,
     # add a branch here.  If this grows much larger, consider extracting
     # per-clause handler functions.  See module-level comment and ADR-006.
     from graphglot.ast.cypher import CreateClause, MergeClause
