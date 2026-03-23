@@ -626,7 +626,7 @@ def check_invalid_delete_target(ctx: AnalysisContext) -> list[SemanticDiagnostic
                 diagnostics.append(
                     SemanticDiagnostic(
                         feature_id="invalid-delete-target",
-                        message="DELETE requires a variable reference, not an expression.",
+                        message="DELETE item must evaluate to a node or edge reference.",
                         node=item,
                     )
                 )
