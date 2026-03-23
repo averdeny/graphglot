@@ -3,7 +3,7 @@
 duplicate-alias, union-column-mismatch, mixed-query-conjunction,
 nested-aggregation, aggregation-in-non-return-context, same-pattern-node-edge-conflict,
 boolean-operand-type, orderby-aggregate-without-groupby, non-constant-skip-limit,
-invalid-delete-target, invalid-merge-pattern, exists-no-update, type-mismatch.
+invalid-merge-pattern, exists-no-update, type-mismatch.
 These rules fire unconditionally — they are not gated on dialect features.
 """
 
@@ -390,40 +390,6 @@ class TestMixedFocusedAmbient(unittest.TestCase):
         """USE $g MATCH (n) RETURN n → no diagnostic (single statement)."""
         result = _analyze_gql("USE $g MATCH (n) RETURN n")
         self.assertNotIn("mixed-focused-ambient", _feature_ids(result))
-
-
-# ===========================================================================
-# invalid-delete-target — DELETE argument validation (§13.5 SR 5, CR 2)
-# ===========================================================================
-
-
-class TestInvalidDeleteTarget(unittest.TestCase):
-    """invalid-delete-target: DELETE requires bare variable references."""
-
-    def test_delete_variable_ok(self):
-        """MATCH (n) DELETE n → no diagnostic."""
-        result = _analyze("MATCH (n) DELETE n")
-        self.assertNotIn("invalid-delete-target", _feature_ids(result))
-
-    def test_detach_delete_variable_ok(self):
-        """MATCH (n) DETACH DELETE n → no diagnostic."""
-        result = _analyze("MATCH (n) DETACH DELETE n")
-        self.assertNotIn("invalid-delete-target", _feature_ids(result))
-
-    def test_delete_labeled_predicate(self):
-        """MATCH (n) DELETE n:Person → diagnostic."""
-        result = _analyze("MATCH (n) DELETE n:Person")
-        self.assertIn("invalid-delete-target", _feature_ids(result))
-
-    def test_delete_arithmetic(self):
-        """MATCH (n) DELETE 1 + 1 → diagnostic."""
-        result = _analyze("MATCH () DELETE 1 + 1")
-        self.assertIn("invalid-delete-target", _feature_ids(result))
-
-    def test_delete_multiple_vars_ok(self):
-        """MATCH (n), (m) DELETE n, m → no diagnostic."""
-        result = _analyze("MATCH (n), (m) DELETE n, m")
-        self.assertNotIn("invalid-delete-target", _feature_ids(result))
 
 
 # ===========================================================================

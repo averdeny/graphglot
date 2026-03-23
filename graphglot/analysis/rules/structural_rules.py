@@ -10,7 +10,6 @@ same-pattern-node-edge-conflict    — Same variable as node and edge in one pat
 boolean-operand-type               — Non-boolean operands to AND/OR/XOR/NOT
 orderby-aggregate-without-groupby  — Aggregate in ORDER BY without GROUP BY
 non-constant-skip-limit            — Non-constant expression in SKIP/LIMIT
-invalid-delete-target              — Non-variable expression in DELETE
 invalid-merge-pattern              — Invalid MERGE relationship pattern
 exists-no-update                   — Data-modifying statement inside EXISTS
 type-mismatch                      — Incompatible operand types in concat/arithmetic
@@ -601,33 +600,6 @@ def check_non_constant_skip_limit(ctx: AnalysisContext) -> list[SemanticDiagnost
                         feature_id="non-constant-skip-limit",
                         message=f"{label} requires a non-negative integer literal or parameter.",
                         node=clause,
-                    )
-                )
-
-    return diagnostics
-
-
-# ---------------------------------------------------------------------------
-# invalid-delete-target — §13.5 SR 5 / CR 2: DELETE items must be bare
-# binding variable references (without GD04, no expressions allowed)
-# ---------------------------------------------------------------------------
-
-
-@structural_rule("invalid-delete-target")
-def check_invalid_delete_target(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
-    """Detect non-variable expressions in DELETE (§13.5 SR 5, CR 2)."""
-    diagnostics: list[SemanticDiagnostic] = []
-
-    for node in ctx.expression.find_all(ast.DeleteStatement):
-        ds = t.cast(ast.DeleteStatement, node)
-        for item in ds.delete_item_list.list_delete_item:
-            primary = _unwrap_arithmetic(item)
-            if not isinstance(primary, ast.BindingVariableReference | ast.Identifier):
-                diagnostics.append(
-                    SemanticDiagnostic(
-                        feature_id="invalid-delete-target",
-                        message="DELETE item must evaluate to a node or edge reference.",
-                        node=item,
                     )
                 )
 
