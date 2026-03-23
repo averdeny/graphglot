@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.3.1 (2026-03-23)
+
+### Bug Fixes
+
+- Improve invalid-delete-target diagnostic message
+  ([`761f3ae`](https://github.com/averdeny/graphglot/commit/761f3ae75cba896e667b2b4dbe932caab613680b))
+
+- Remove redundant invalid-delete-target structural rule
+  ([`1fa11be`](https://github.com/averdeny/graphglot/commit/1fa11bea0b5763bbb95a19c607994f606aa32189))
+
+- Upgrade CVE to BVE when predicate/boolean token follows in ValueExpression
+  ([`7621a9a`](https://github.com/averdeny/graphglot/commit/7621a9a1ac40fc7ef88ddcc95d16edca16bf8322))
+
+### Documentation
+
+- Correct GD03/GD04 feature descriptions and examples
+  ([`76bc709`](https://github.com/averdeny/graphglot/commit/76bc709f1af62cfbdcc22241c7e476b28c53fb0a))
+
+
 ## v0.3.0 (2026-03-23)
 
 ### Bug Fixes
