@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.3.0 (2026-03-23)
+
+### Bug Fixes
+
+- Reject non-arithmetic/non-concat operands in ambiguous type resolution
+  ([`5190edb`](https://github.com/averdeny/graphglot/commit/5190edb2859832999d8f8dfade662c332f754338))
+
+### Features
+
+- Add type-mismatch structural rule for concat and arithmetic operands
+  ([`a204d26`](https://github.com/averdeny/graphglot/commit/a204d26cbd1090c63023828d2437e21f6ae115a6))
+
+
 ## v0.2.0 (2026-03-20)
 
 ### Bug Fixes
