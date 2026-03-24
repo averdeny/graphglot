@@ -13,6 +13,7 @@ if t.TYPE_CHECKING:
     from graphglot.typing.types import GqlType
 
 _SENTINEL = object()
+_E = t.TypeVar("_E", bound="Expression")
 
 
 # ---------------------------------------------------------------------------
@@ -385,11 +386,11 @@ class Expression:
             elif isinstance(value, list):
                 yield from (v for v in value if isinstance(v, Expression))
 
-    def find_first(self, type_: type[Expression], bfs: bool = True) -> Expression | None:
+    def find_first(self, type_: type[_E], bfs: bool = True) -> _E | None:
         """Find the first child of a specific type in the expression tree."""
         return next(self.find_all(type_, bfs), None)
 
-    def find_all(self, type_: type[Expression], bfs: bool = True) -> t.Iterator[Expression]:
+    def find_all(self, type_: type[_E], bfs: bool = True) -> t.Iterator[_E]:
         """Yield all expressions of the specified type in the AST."""
         traversal = self.bfs() if bfs else self.dfs()
         yield from (e for e in traversal if isinstance(e, type_))

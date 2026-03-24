@@ -6,8 +6,6 @@ for extracting pattern bindings, identifying variable references, etc.
 
 from __future__ import annotations
 
-import typing as t
-
 from graphglot.ast import expressions as ast
 from graphglot.ast.cypher import (
     ListComprehension,
@@ -70,7 +68,6 @@ def extract_pattern_bindings(
     bindings: list[tuple[str, str, ast.Expression]] = []
     # MATCH-style patterns: ElementPatternFiller → NodePattern / FullEdgePattern
     for filler in subtree.find_all(ast.ElementPatternFiller):
-        filler = t.cast(ast.ElementPatternFiller, filler)
         decl = filler.element_variable_declaration
         if decl is None:
             continue
@@ -80,7 +77,6 @@ def extract_pattern_bindings(
             bindings.append((name, kind, filler))
     # INSERT/CREATE-style patterns: InsertElementPatternFiller
     for ifiller in subtree.find_all(ast.InsertElementPatternFiller):
-        ifiller = t.cast(ast.InsertElementPatternFiller, ifiller)
         inner = ifiller.insert_element_pattern_filler
         insert_decl: ast.ElementVariableDeclaration | None = None
         if isinstance(inner, ast.ElementVariableDeclaration):
@@ -98,11 +94,9 @@ def extract_pattern_bindings(
             bindings.append((name, kind, ifiller))
     # Path variable declarations
     for pvd in subtree.find_all(ast.PathVariableDeclaration):
-        pvd = t.cast(ast.PathVariableDeclaration, pvd)
         bindings.append((pvd.path_variable.name, "path", pvd))
     # Subpath variable declarations
     for spvd in subtree.find_all(ast.SubpathVariableDeclaration):
-        spvd = t.cast(ast.SubpathVariableDeclaration, spvd)
         bindings.append((spvd.subpath_variable.name, "path", spvd))
     return bindings
 
@@ -133,7 +127,6 @@ def extract_let_bound_names(subtree: ast.Expression) -> set[str]:
     """
     names: set[str] = set()
     for let_expr in subtree.find_all(ast.LetValueExpression):
-        let_expr = t.cast(ast.LetValueExpression, let_expr)
         for defn in let_expr.let_variable_definition_list.list_let_variable_definition:
             inner = defn.let_variable_definition
             if isinstance(inner, ast.LetVariableDefinition._BindingVariableValueExpression):
@@ -151,10 +144,8 @@ def extract_comprehension_bound_names(subtree: ast.Expression) -> set[str]:
     """
     names: set[str] = set()
     for lc in subtree.find_all(ListComprehension):
-        lc = t.cast(ListComprehension, lc)
         names.add(lc.variable.name)
     for lpf in subtree.find_all(ListPredicateFunction):
-        lpf = t.cast(ListPredicateFunction, lpf)
         names.add(lpf.variable.name)
     return names
 

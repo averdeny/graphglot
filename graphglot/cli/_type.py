@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import typing as t
 
 from pathlib import Path
 
@@ -62,8 +61,7 @@ def type_cmd(
 
     # Extract return items
     fields: list[dict[str, str]] = []
-    for i, item_ in enumerate(expressions[0].find_all(ReturnItem), 1):
-        item = t.cast(ReturnItem, item_)
+    for i, item in enumerate(expressions[0].find_all(ReturnItem), 1):
         expr_text = dialect_obj.generate(item.aggregating_value_expression, copy=False)
         alias = item.return_item_alias.identifier.name if item.return_item_alias else None
         resolved = item.aggregating_value_expression._resolved_type
@@ -80,8 +78,7 @@ def type_cmd(
     # Detect RETURN * only when no return items were found
     has_star = False
     if not fields:
-        for rsb_ in expressions[0].find_all(ReturnStatementBody):
-            rsb = t.cast(ReturnStatementBody, rsb_)
+        for rsb in expressions[0].find_all(ReturnStatementBody):
             body = rsb.return_statement_body
             if isinstance(body, ReturnStatementBody._SetQuantifierAsteriskGroupByClause):
                 has_star = True

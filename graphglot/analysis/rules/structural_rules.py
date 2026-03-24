@@ -93,8 +93,7 @@ def check_duplicate_column_aliases(ctx: AnalysisContext) -> list[SemanticDiagnos
     """Detect duplicate aliases in RETURN/WITH clauses."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.ReturnStatementBody):
-        body = t.cast(ast.ReturnStatementBody, node)
+    for body in ctx.expression.find_all(ast.ReturnStatementBody):
         inner = _get_return_body_inner(body)
         if inner is None:
             continue
@@ -127,8 +126,7 @@ def check_union_column_mismatch(ctx: AnalysisContext) -> list[SemanticDiagnostic
     """Detect UNION branches with different column names."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.CompositeQueryExpression):
-        cqe = t.cast(ast.CompositeQueryExpression, node)
+    for cqe in ctx.expression.find_all(ast.CompositeQueryExpression):
         if not cqe.query_conjunction_elements:
             continue
         left_cols = _extract_column_names(cqe.left_composite_query_primary)
@@ -166,8 +164,7 @@ def check_mixed_query_conjunction(ctx: AnalysisContext) -> list[SemanticDiagnost
     """Detect mixing of different query conjunctions in the same CQE (§14.2 SR 3)."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.CompositeQueryExpression):
-        cqe = t.cast(ast.CompositeQueryExpression, node)
+    for cqe in ctx.expression.find_all(ast.CompositeQueryExpression):
         if not cqe.query_conjunction_elements or len(cqe.query_conjunction_elements) < 2:
             continue
         first_id: tuple[str, str] | None = None
@@ -238,8 +235,7 @@ def check_mixed_focused_ambient(ctx: AnalysisContext) -> list[SemanticDiagnostic
     """
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.StatementBlock):
-        sblk = t.cast(ast.StatementBlock, node)
+    for sblk in ctx.expression.find_all(ast.StatementBlock):
         if not sblk.list_next_statement:
             continue
         stmts = [sblk.statement, *(ns.statement for ns in sblk.list_next_statement)]
@@ -258,8 +254,7 @@ def check_nested_aggregation(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Detect nested aggregate functions like count(count(*)) (§20.9 SR 4)."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.AggregateFunction):
-        agg = t.cast(ast.AggregateFunction, node)
+    for agg in ctx.expression.find_all(ast.AggregateFunction):
         # Walk _parent chain — if any ancestor is also AggregateFunction, it's nested.
         parent = agg._parent
         while parent is not None:
@@ -294,8 +289,7 @@ def check_aggregation_in_non_return_context(ctx: AnalysisContext) -> list[Semant
     """Detect aggregate functions outside RETURN/SELECT/ORDER BY (§20.1 CR 4)."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.AggregateFunction):
-        agg = t.cast(ast.AggregateFunction, node)
+    for agg in ctx.expression.find_all(ast.AggregateFunction):
         # Walk _parent chain to find a valid containing context.
         valid = False
         parent = agg._parent
@@ -345,8 +339,7 @@ def check_same_pattern_node_edge_conflict(ctx: AnalysisContext) -> list[Semantic
     """Detect same variable used as node and edge in one graph pattern (§16.4 SR 5)."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.GraphPattern):
-        gp = t.cast(ast.GraphPattern, node)
+    for gp in ctx.expression.find_all(ast.GraphPattern):
         node_vars: set[str] = set()
         edge_vars: set[str] = set()
 
@@ -428,8 +421,7 @@ def check_boolean_operand_type(ctx: AnalysisContext) -> list[SemanticDiagnostic]
     diagnostics: list[SemanticDiagnostic] = []
 
     # NOT operands (BooleanFactor with not_=True)
-    for node in ctx.expression.find_all(ast.BooleanFactor):
-        factor = t.cast(ast.BooleanFactor, node)
+    for factor in ctx.expression.find_all(ast.BooleanFactor):
         if not factor.not_:
             continue
         inner_type = _boolean_operand_type(factor)
@@ -443,8 +435,7 @@ def check_boolean_operand_type(ctx: AnalysisContext) -> list[SemanticDiagnostic]
             )
 
     # AND operands (BooleanTerm with >1 factors)
-    for node in ctx.expression.find_all(ast.BooleanTerm):
-        term = t.cast(ast.BooleanTerm, node)
+    for term in ctx.expression.find_all(ast.BooleanTerm):
         if len(term.list_boolean_factor) < 2:
             continue
         for factor in term.list_boolean_factor:
@@ -459,8 +450,7 @@ def check_boolean_operand_type(ctx: AnalysisContext) -> list[SemanticDiagnostic]
                 )
 
     # OR/XOR operands (BooleanValueExpression with ops)
-    for node in ctx.expression.find_all(ast.BooleanValueExpression):
-        bve = t.cast(ast.BooleanValueExpression, node)
+    for bve in ctx.expression.find_all(ast.BooleanValueExpression):
         if not bve.ops:
             continue
         first_type = _boolean_term_operand_type(bve.boolean_term)
@@ -501,8 +491,7 @@ def check_orderby_aggregate_without_groupby(ctx: AnalysisContext) -> list[Semant
     """Detect aggregate functions in ORDER BY without GROUP BY (§14.10 SR 4)."""
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.PrimitiveResultStatement):
-        prs = t.cast(ast.PrimitiveResultStatement, node)
+    for prs in ctx.expression.find_all(ast.PrimitiveResultStatement):
         stmt = prs.primitive_result_statement
         if not isinstance(stmt, _ReturnWithOrderBy):
             continue
@@ -524,7 +513,6 @@ def check_orderby_aggregate_without_groupby(ctx: AnalysisContext) -> list[Semant
             continue
 
         for spec in order_by.find_all(ast.SortSpecification):
-            spec = t.cast(ast.SortSpecification, spec)
             if any(spec.find_all(ast.AggregateFunction)):
                 diagnostics.append(
                     SemanticDiagnostic(
@@ -619,8 +607,7 @@ def check_invalid_merge_pattern(ctx: AnalysisContext) -> list[SemanticDiagnostic
 
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(MergeClause):
-        mc = t.cast(MergeClause, node)
+    for mc in ctx.expression.find_all(MergeClause):
         # Check for variable-length patterns (QuantifiedPathPrimary)
         for qpp in mc.path_pattern.find_all(ast.QuantifiedPathPrimary):
             diagnostics.append(
@@ -632,7 +619,6 @@ def check_invalid_merge_pattern(ctx: AnalysisContext) -> list[SemanticDiagnostic
             )
         # Check edges
         for edge in mc.path_pattern.find_all(ast.EdgePattern):
-            edge = t.cast(ast.EdgePattern, edge)
             if isinstance(edge, ast.AbbreviatedEdgePattern):
                 diagnostics.append(
                     SemanticDiagnostic(
@@ -686,8 +672,7 @@ def check_exists_no_update(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
 
     diagnostics: list[SemanticDiagnostic] = []
 
-    for node in ctx.expression.find_all(ast.ExistsPredicate):
-        ep = t.cast(ast.ExistsPredicate, node)
+    for ep in ctx.expression.find_all(ast.ExistsPredicate):
         for child in ep.find_all(ast.Expression):
             if isinstance(child, (*_DATA_MODIFYING_TYPES, CreateClause, MergeClause)):
                 diagnostics.append(

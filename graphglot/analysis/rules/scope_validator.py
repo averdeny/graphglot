@@ -24,8 +24,6 @@ distinct-order-by-non-projected   — ORDER BY key not in RETURN with DISTINCT
 
 from __future__ import annotations
 
-import typing as t
-
 from dataclasses import dataclass, field
 
 from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
@@ -91,7 +89,6 @@ def _extract_return_item_names(
             else:
                 # No alias — use the variable reference name (RETURN n → alias is n)
                 for ident in item.aggregating_value_expression.find_all(ast.Identifier):
-                    ident = t.cast(ast.Identifier, ident)
                     if _is_variable_reference(ident):
                         names.add(ident.name)
                         break
@@ -264,7 +261,7 @@ def _walk_scope(root: ast.Expression) -> list[SemanticDiagnostic]:
 
     # Find the outermost StatementBlock
     for sb in root.find_all(ast.StatementBlock):
-        _walk_statement_block(t.cast(ast.StatementBlock, sb), state)
+        _walk_statement_block(sb, state)
         return diagnostics
 
     # Fallback: walk the root directly if no StatementBlock
@@ -685,7 +682,6 @@ def _check_distinct_order_by(
             allowed.add(key)
 
     for spec in order_by.find_all(ast.SortSpecification):
-        spec = t.cast(ast.SortSpecification, spec)
         sort_key = _expr_key(spec.sort_key)
         if sort_key is None:
             continue  # complex expression — skip (conservative)
