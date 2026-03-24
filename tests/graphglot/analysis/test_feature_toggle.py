@@ -4,7 +4,7 @@ Tests for unsupported feature validation during semantic analysis.
 Analogous to tests/graphglot/lexer/test_feature_toggle.py and
 tests/graphglot/parser/test_feature_toggle.py, but for features
 whose restrictions are enforced by the semantic analysis module
-(GA04, GA07, GA09, GE04, GE05, GE09, GP14, GP15, GQ17).
+(GA04, GA07, GA09, GE04, GE05, GE09, GG22, GG23, GP14, GP15, GQ17).
 """
 
 import pytest
@@ -109,6 +109,24 @@ TEST_CASES = [
         F.GE05,
         "FOR x IN TABLE $t RETURN x",
         id="GE05_binding_table_parameter_in_for",
+    ),
+    # GG22: Element type key label set inference
+    pytest.param(
+        F.GG22,
+        "CREATE GRAPH TYPE gt {"
+        "  NODE TYPE :Person => :Person {name STRING},"
+        "  NODE TYPE :Animal {species STRING}"
+        "}",
+        id="GG22_key_label_set_inference",
+    ),
+    # GG23: Optional element type key label sets (overlapping labels defeat GG22 inference)
+    pytest.param(
+        F.GG23,
+        "CREATE GRAPH TYPE gt {"
+        "  NODE TYPE :Person => :Person {name STRING},"
+        "  NODE TYPE :Person {age INT32}"
+        "}",
+        id="GG23_omitted_key_label_set",
     ),
     # GP15: Graphs as procedure arguments
     pytest.param(

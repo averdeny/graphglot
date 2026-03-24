@@ -1,4 +1,7 @@
-"""Tests for semantic analysis rules (GA04, GA07, GA09, GE04, GE05, GE09, GP14, GP15, GQ17)."""
+"""Tests for semantic analysis rules.
+
+GA04, GA07, GA09, GE04, GE05, GE09, GG22, GG23, GP14, GP15, GQ17.
+"""
 
 from __future__ import annotations
 
@@ -38,6 +41,14 @@ class _NoGE05(Dialect):
 
 class _NoGE09(Dialect):
     SUPPORTED_FEATURES = ALL_FEATURES - {F.GE09}
+
+
+class _NoGG23(Dialect):
+    SUPPORTED_FEATURES = ALL_FEATURES - {F.GG23}
+
+
+class _NoGG22NoGG23(Dialect):
+    SUPPORTED_FEATURES = ALL_FEATURES - {F.GG22, F.GG23}
 
 
 class _NoGP14(Dialect):
@@ -568,3 +579,109 @@ class TestGP14(unittest.TestCase):
         """CALL proc((TABLE t)) — nested inside parens → still caught."""
         result = _analyze("CALL proc((TABLE t))", _NoGP14())
         self.assertIn("GP14", _feature_ids(result))
+
+
+# ===========================================================================
+# GG23 — Optional element type key label sets
+# ===========================================================================
+
+
+class TestGG23(unittest.TestCase):
+    """GG23: without this feature, element type specs in a graph type body
+    must not have an "omitted" effective key label set.
+
+    See §18.1 Conformance Rule 1.
+    """
+
+    def test_omitted_key_label_set_node_produces_diagnostic(self):
+        """Node type with implied content only (no key label set, no type name) → diagnostic.
+        Uses _NoGG22NoGG23 to disable inference so the key label set stays omitted."""
+        query = "CREATE GRAPH TYPE gt { NODE TYPE :Person {name STRING} }"
+        result = _analyze(query, _NoGG22NoGG23())
+        self.assertIn("GG23", _feature_ids(result))
+
+    def test_explicit_key_label_set_no_diagnostic(self):
+        """Node type with explicit key label set (=>) → no diagnostic."""
+        query = "CREATE GRAPH TYPE gt { NODE TYPE :Person => :Person {name STRING} }"
+        result = _analyze(query, _NoGG23())
+        self.assertNotIn("GG23", _feature_ids(result))
+
+    def test_bare_implies_no_diagnostic(self):
+        """Node type with bare => (empty key label set, not omitted) → no diagnostic."""
+        query = "CREATE GRAPH TYPE gt { NODE TYPE => :Person {name STRING} }"
+        result = _analyze(query, _NoGG23())
+        self.assertNotIn("GG23", _feature_ids(result))
+
+    def test_type_name_provides_implicit_key_label(self):
+        """NODE TYPE PersonType — type name serves as implicit key label → no diagnostic."""
+        query = "CREATE GRAPH TYPE gt { NODE TYPE PersonType }"
+        result = _analyze(query, _NoGG23())
+        self.assertNotIn("GG23", _feature_ids(result))
+
+    def test_full_dialect_allows_omitted(self):
+        """Full dialect (GG23 supported) → no GG23 diagnostic."""
+        query = "CREATE GRAPH TYPE gt { NODE TYPE :Person {name STRING} }"
+        result = _analyze(query, _Full())
+        gg23_diags = [d for d in result.diagnostics if d.feature_id == "GG23"]
+        self.assertEqual(gg23_diags, [])
+
+    def test_edge_type_omitted_key_label_set(self):
+        """Edge type with label but no key label set, no type name → diagnostic."""
+        query = (
+            "CREATE GRAPH TYPE gt {"
+            "  DIRECTED EDGE TYPE :Knows CONNECTING (a TO b),"
+            "  DIRECTED EDGE TYPE :Knows => CONNECTING (c TO d)"
+            "}"
+        )
+        result = _analyze(query, _NoGG23())
+        self.assertIn("GG23", _feature_ids(result))
+
+
+# ===========================================================================
+# GG22 — Element type key label set inference
+# ===========================================================================
+
+
+class TestGG22(unittest.TestCase):
+    """GG22: when supported, the system infers effective key label sets from
+    labels unique to an element type within the graph type body.
+
+    See §18.2 Syntax Rule 9 / §18.3 Syntax Rule 10.
+    """
+
+    def test_unique_labels_inferred_no_gg23_diagnostic(self):
+        """Two node specs: :Person => ..., :Animal .... Animal is unique →
+        GG22 infers key label set → no GG23 diagnostic (even without GG23)."""
+        query = (
+            "CREATE GRAPH TYPE gt {"
+            "  NODE TYPE :Person => :Person {name STRING},"
+            "  NODE TYPE :Animal {species STRING}"
+            "}"
+        )
+        # GG22 is supported (full - GG23), so inference kicks in
+        result = _analyze(query, _NoGG23())
+        self.assertNotIn("GG23", _feature_ids(result))
+
+    def test_all_labels_overlap_remains_omitted(self):
+        """Two node specs with overlapping labels: :Person ..., :Person ....
+        No unique labels → inference produces empty → still omitted → diagnostic."""
+        query = (
+            "CREATE GRAPH TYPE gt {"
+            "  NODE TYPE :Person => :Person {name STRING},"
+            "  NODE TYPE :Person {age INT32}"
+            "}"
+        )
+        result = _analyze(query, _NoGG23())
+        self.assertIn("GG23", _feature_ids(result))
+
+    def test_without_gg22_no_inference(self):
+        """Same as test_unique_labels but with GG22 also disabled →
+        no inference → key label set stays omitted → diagnostic."""
+        query = (
+            "CREATE GRAPH TYPE gt {"
+            "  NODE TYPE :Person => :Person {name STRING},"
+            "  NODE TYPE :Animal {species STRING}"
+            "}"
+        )
+        result = _analyze(query, _NoGG22NoGG23())
+        self.assertIn("GG23", _feature_ids(result))

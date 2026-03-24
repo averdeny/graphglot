@@ -6,6 +6,8 @@ GA09 — Comparison of paths
 GE04 — Graph parameters
 GE05 — Binding table parameters
 GE09 — Horizontal aggregation
+GG22 — Element type key label set inference
+GG23 — Optional element type key label sets
 GP14 — Binding tables as procedure arguments
 GP15 — Graphs as procedure arguments
 GQ17 — Element-wise group variable operations
@@ -591,3 +593,144 @@ def check_binding_tables_as_procedure_arguments(ctx: AnalysisContext) -> list[Se
                 )
 
     return diagnostics
+
+
+# ---------------------------------------------------------------------------
+# GG22 — Element type key label set inference
+# GG23 — Optional element type key label sets
+# ---------------------------------------------------------------------------
+
+# Maps (key-label-set AST type, type-name check) for node and edge type specs.
+_NODE_KLS_TYPE = ast.NodeTypeKeyLabelSet
+_EDGE_KLS_TYPE = ast.EdgeTypeKeyLabelSet
+
+
+def _has_key_label_set(
+    spec: ast.ElementTypeSpecification,
+    kls_type: type[ast.Expression],
+) -> bool:
+    """True when the element type spec contains an explicit key label set (including bare =>)."""
+    return spec.find_first(kls_type) is not None
+
+
+def _has_type_name(spec: ast.ElementTypeSpecification) -> bool:
+    """True when the spec has a type name (providing an implicit key label)."""
+    if isinstance(spec, ast.NodeTypePhrase):
+        return isinstance(
+            spec.node_type_phrase_filler.node_type_phrase_filler,
+            ast.NodeTypePhraseFiller._NodeTypeNameNodeTypeFiller,
+        )
+    if isinstance(spec, ast.NodeTypePattern):
+        return spec.node_synonym_type_node_type_name is not None
+    if isinstance(spec, ast.EdgeTypePhrase):
+        return isinstance(
+            spec.edge_type_phrase_filler.edge_type_phrase_filler,
+            ast.EdgeTypePhraseFiller._EdgeTypeNameEdgeTypeFiller,
+        )
+    if isinstance(spec, ast.EdgeTypePattern):
+        return spec.prefix is not None
+    return False
+
+
+def _label_set(spec: ast.ElementTypeSpecification) -> set[str]:
+    """Extract all labels from an element type spec (key + implied + type name)."""
+    # LabelName nodes cover key label set phrases and implied content labels.
+    labels = {ln.identifier.name for ln in spec.find_all(ast.LabelName)}
+    # Type names are Identifiers, not LabelNames — extract separately.
+    if isinstance(spec, ast.NodeTypePhrase):
+        ptf = spec.node_type_phrase_filler.node_type_phrase_filler
+        if isinstance(ptf, ast.NodeTypePhraseFiller._NodeTypeNameNodeTypeFiller):
+            labels.add(ptf.node_type_name.name)
+    elif (
+        isinstance(spec, ast.NodeTypePattern) and spec.node_synonym_type_node_type_name is not None
+    ):
+        labels.add(spec.node_synonym_type_node_type_name.node_type_name.name)
+    elif isinstance(spec, ast.EdgeTypePhrase):
+        eptf = spec.edge_type_phrase_filler.edge_type_phrase_filler
+        if isinstance(eptf, ast.EdgeTypePhraseFiller._EdgeTypeNameEdgeTypeFiller):
+            labels.add(eptf.edge_type_name.name)
+    elif isinstance(spec, ast.EdgeTypePattern) and spec.prefix is not None:
+        labels.add(spec.prefix.edge_type_name.name)
+    return labels
+
+
+def _classify_omitted_specs(
+    expression: ast.Expression,
+) -> tuple[list[ast.Expression], list[ast.Expression]]:
+    """Classify element type specs with omitted key label sets by whether
+    GG22 inference could resolve them.
+
+    Returns (inferable, not_inferable):
+      - inferable: specs where unique labels exist (GG22 inference would succeed)
+      - not_inferable: specs where no unique labels exist (stays omitted regardless)
+    """
+    inferable: list[ast.Expression] = []
+    not_inferable: list[ast.Expression] = []
+
+    for ngts in expression.find_all(ast.NestedGraphTypeSpecification):
+        for kls_type, spec_type in (
+            (_NODE_KLS_TYPE, ast.NodeTypeSpecification),
+            (_EDGE_KLS_TYPE, ast.EdgeTypeSpecification),
+        ):
+            specs = list(ngts.find_all(spec_type))
+            for spec in specs:
+                if _has_key_label_set(spec, kls_type) or _has_type_name(spec):
+                    continue
+                # Key label set is omitted — check if inference would help.
+                implied = _label_set(spec)
+                others = [_label_set(other) for other in specs if other is not spec]
+                all_other = set().union(*others) if others else set()
+                if implied - all_other:
+                    inferable.append(spec)
+                else:
+                    not_inferable.append(spec)
+
+    return inferable, not_inferable
+
+
+@analysis_rule(F.GG22)
+def check_key_label_set_inference(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
+    """Without GG22, key label set inference is not available, so element type
+    specs that rely on it have an omitted effective key label set.
+
+    See §18.2 Syntax Rule 9 / §18.3 Syntax Rule 10.
+    """
+    inferable, _ = _classify_omitted_specs(ctx.expression)
+    return [
+        SemanticDiagnostic(
+            feature_id="GG22",
+            message=(
+                "Element type specification relies on key label set inference. "
+                "Feature GG22 (element type key label set inference) is required."
+            ),
+            node=spec,
+        )
+        for spec in inferable
+    ]
+
+
+@analysis_rule(F.GG23)
+def check_optional_key_label_sets(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
+    """Without GG23, element type specs in a graph type body must not have
+    an "omitted" effective key label set.
+
+    See §18.1 Conformance Rule 1. When GG22 is also supported, inference
+    may resolve an otherwise-omitted key label set to a non-empty set.
+    """
+    inferable, not_inferable = _classify_omitted_specs(ctx.expression)
+    gg22_supported = ctx.dialect.is_feature_supported("GG22")
+    # If GG22 is supported, inferable specs are resolved — only not_inferable remain omitted.
+    # If GG22 is not supported, all specs with omitted key label sets are omitted.
+    omitted = not_inferable if gg22_supported else inferable + not_inferable
+    return [
+        SemanticDiagnostic(
+            feature_id="GG23",
+            message=(
+                "Element type specification has an omitted effective "
+                "key label set. Feature GG23 (optional element type "
+                "key label sets) is required."
+            ),
+            node=spec,
+        )
+        for spec in omitted
+    ]

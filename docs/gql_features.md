@@ -812,15 +812,26 @@ CREATE GRAPH TYPE my_type { NODE TYPE :Person => }
 
 ### GG22 — Element type key label set inference
 
-Allows the implementation to automatically infer key label sets for element types based on the graph's data, rather than requiring explicit declaration.
+Infers key label sets for element types from labels unique to that type within the graph type body.
 
-*INACTIVE*
+```gql
+CREATE GRAPH TYPE gt {
+  NODE TYPE :Person => :Person {name STRING},
+  NODE TYPE :Animal {species STRING}
+  -- Animal's key label set is inferred as {Animal} (unique among node types)
+}
+```
 
 ### GG23 — Optional element type key label sets
 
-Makes key label sets optional in element type definitions. Without this, every element type must declare its key labels.
+Allows element type specifications in a graph type body to omit their key label set entirely.
 
-*INACTIVE*
+```gql
+CREATE GRAPH TYPE gt {
+  NODE TYPE :Person {name STRING}
+  -- No key label set (no =>) — requires GG23
+}
+```
 
 ### GG24 — Relaxed structural consistency
 
