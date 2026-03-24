@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.4.0 (2026-03-24)
+
+### Features
+
+- Add GP14/GP15 analysis rules for procedure argument type gating
+  ([`5295893`](https://github.com/averdeny/graphglot/commit/5295893fb5a3b6ca986720b0c0b3e3aac08ee9e8))
+
+### Refactoring
+
+- Make find_all/find_first generic and remove redundant t.cast calls
+  ([`cab28c5`](https://github.com/averdeny/graphglot/commit/cab28c52c8b4010962222cefcd2c6285ec471dc2))
+
+- Use typed Feature objects in @analysis_rule decorator
+  ([`8280faa`](https://github.com/averdeny/graphglot/commit/8280faacd733cff276cda6da8ded788b4ee35a3e))
+
+
 ## v0.3.1 (2026-03-23)
 
 ### Bug Fixes
