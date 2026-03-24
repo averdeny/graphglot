@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing as t
 
 from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
+from graphglot.features import Feature
 
 AnalysisRuleFn = t.Callable[[AnalysisContext], list[SemanticDiagnostic]]
 
@@ -12,7 +13,7 @@ RULE_REGISTRY: dict[str, AnalysisRuleFn] = {}
 STRUCTURAL_RULES: dict[str, AnalysisRuleFn] = {}
 
 
-def analysis_rule(feature_id: str):
+def analysis_rule(feature: Feature):
     """Register a function as the analysis rule for a feature.
 
     Rules fire when the feature is **absent** from the dialect — if the dialect
@@ -20,7 +21,7 @@ def analysis_rule(feature_id: str):
     """
 
     def decorator(fn: AnalysisRuleFn) -> AnalysisRuleFn:
-        RULE_REGISTRY[feature_id] = fn
+        RULE_REGISTRY[feature.id] = fn
         return fn
 
     return decorator

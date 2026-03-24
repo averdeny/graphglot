@@ -13,6 +13,7 @@ GQ17 — Element-wise group variable operations
 
 from __future__ import annotations
 
+from graphglot import features as F
 from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
 from graphglot.analysis.rules._registry import analysis_rule
 from graphglot.ast import expressions as ast
@@ -103,7 +104,7 @@ def _return_output_names(
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GA07")
+@analysis_rule(F.GA07)
 def check_ordering_by_discarded_variables(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GA07, ORDER BY can only reference binding variables that
     appear in the RETURN output."""
@@ -183,7 +184,7 @@ def check_ordering_by_discarded_variables(ctx: AnalysisContext) -> list[Semantic
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GE09")
+@analysis_rule(F.GE09)
 def check_horizontal_aggregation(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GE09, aggregate functions may only appear at the top-level
     RETURN scope (vertical aggregation).  Aggregation inside a list/pattern
@@ -216,7 +217,7 @@ def check_horizontal_aggregation(ctx: AnalysisContext) -> list[SemanticDiagnosti
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GQ17")
+@analysis_rule(F.GQ17)
 def check_elementwise_group_variable_ops(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GQ17, non-grouped variables in RETURN (after GROUP BY) may only
     be referenced inside aggregate functions.  Element-wise operations like
@@ -302,7 +303,7 @@ def _fmt(names: set[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GA09")
+@analysis_rule(F.GA09)
 def check_comparison_of_paths(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GA09, path-typed values may not appear as comparison operands.
 
@@ -401,7 +402,7 @@ def semantic_type(node: ast.Expression) -> GqlType | None:
     return best
 
 
-@analysis_rule("GA04")
+@analysis_rule(F.GA04)
 def check_universal_comparison(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GA04, comparison operands must be type-compatible.
 
@@ -437,7 +438,7 @@ def check_universal_comparison(ctx: AnalysisContext) -> list[SemanticDiagnostic]
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GE04")
+@analysis_rule(F.GE04)
 def check_graph_parameters(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GE04, session parameters may not be graph-typed.
 
@@ -484,7 +485,7 @@ def check_graph_parameters(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GE05")
+@analysis_rule(F.GE05)
 def check_binding_table_parameters(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GE05, session parameters may not be binding-table-typed.
 
@@ -531,7 +532,7 @@ def check_binding_table_parameters(ctx: AnalysisContext) -> list[SemanticDiagnos
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GP15")
+@analysis_rule(F.GP15)
 def check_graphs_as_procedure_arguments(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GP15, procedure arguments shall not be graph-typed.
 
@@ -564,7 +565,7 @@ def check_graphs_as_procedure_arguments(ctx: AnalysisContext) -> list[SemanticDi
 # ---------------------------------------------------------------------------
 
 
-@analysis_rule("GP14")
+@analysis_rule(F.GP14)
 def check_binding_tables_as_procedure_arguments(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     """Without GP14, procedure arguments shall not be binding-table-typed.
 
