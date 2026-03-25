@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-03-25)
+
+### Features
+
+- Add GG22/GG23 analysis rules for key label set inference and optional key label sets
+  ([`149b8bd`](https://github.com/averdeny/graphglot/commit/149b8bd634631526c75821eeb497c714374521b1))
+
+
 ## v0.4.0 (2026-03-24)
 
 ### Features
