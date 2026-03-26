@@ -170,9 +170,7 @@ pip install -e ".[dev]"
 - [Dialect Guide](https://github.com/averdeny/graphglot/blob/main/docs/guide/dialects.md) — the dialect system and feature validation
 - [Lineage Analysis](https://github.com/averdeny/graphglot/blob/main/docs/guide/lineage.md) — data flow tracking and export formats
 - [AST Overview](https://github.com/averdeny/graphglot/blob/main/docs/guide/ast.md) — working with the abstract syntax tree
-- [GQL Features](https://github.com/averdeny/graphglot/blob/main/docs/gql_features.md) — reference for GQL features and optional feature coverage
 - [Architecture](https://github.com/averdeny/graphglot/blob/main/docs/architecture/README.md) — module structure and design patterns
-- [TCK Conformance](https://github.com/averdeny/graphglot/blob/main/docs/tck.md) — openCypher compatibility status
 
 ## Contributing
 

@@ -152,5 +152,5 @@ For details on the Cypher extension architecture, see the [Architecture Overview
 
 ## See Also
 
-- [GQL Features](../gql_features.md) — complete reference for all 228 features
 - [GQL Workflow](../gql_workflow.md) — creating graphs and querying data in GQL
+- [ISO/IEC 39075:2024](https://www.iso.org/standard/76120.html) — the GQL standard (feature definitions and conformance rules)

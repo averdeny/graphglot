@@ -90,6 +90,3 @@ nav:
       - GQL Workflow: docs/gql_workflow.md
   - Architecture:
       - Overview: docs/architecture/README.md
-  - Reference:
-      - GQL Features: docs/gql_features.md
-      - TCK Conformance: docs/tck.md
