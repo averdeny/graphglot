@@ -2387,26 +2387,32 @@ class TestDistinctOrderByScope(unittest.TestCase):
 
 
 # ===========================================================================
-# WHERE pattern predicate — unbounded variables
+# WHERE pattern predicate — rewritten to EXISTS
 # ===========================================================================
 
 
 class TestWherePatternPredicateScope(unittest.TestCase):
-    """Cypher pattern predicates in WHERE must not introduce new variables."""
+    """Pattern predicates in WHERE are rewritten to EXISTS, allowing new bindings."""
 
     def test_new_edge_in_where_pattern(self):
-        """MATCH (n) WHERE (n)-[r]->() RETURN n → diagnostic (r undefined)."""
+        """MATCH (n) WHERE (n)-[r]->() RETURN n → no diagnostic.
+
+        After rewrite_cypher_predicates, the pattern predicate becomes
+        EXISTS { (n)-[r]->() }, and new variables inside EXISTS are
+        legitimately scoped.
+        """
         result = _analyze("MATCH (n) WHERE (n)-[r]->() RETURN n")
-        self.assertIn("undefined-variable", _feature_ids(result))
-        msgs = _messages_for(result, "undefined-variable")
-        self.assertTrue(any("r" in m for m in msgs))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_new_node_in_where_pattern(self):
-        """MATCH (n) WHERE (a) RETURN n → diagnostic (a undefined)."""
+        """MATCH (n) WHERE (a) RETURN n → no diagnostic.
+
+        After rewrite_cypher_predicates, the pattern predicate becomes
+        EXISTS { (a) }, and new variables inside EXISTS are
+        legitimately scoped.
+        """
         result = _analyze("MATCH (n) WHERE (a) RETURN n")
-        self.assertIn("undefined-variable", _feature_ids(result))
-        msgs = _messages_for(result, "undefined-variable")
-        self.assertTrue(any("a" in m for m in msgs))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_normal_where_ok(self):
         """MATCH (n) WHERE n.active RETURN n → no diagnostic."""

@@ -59,6 +59,7 @@ from graphglot.generator.fragment import Fragment
 from graphglot.lexer import Lexer as BaseLexer, Token, TokenType
 from graphglot.parser import Parser as BaseParser
 from graphglot.parser.functions import parse_func_args
+from graphglot.transformations import rewrite_cypher_predicates
 
 # =============================================================================
 # Parser functions (plain functions -- NOT @parses-decorated)
@@ -3065,6 +3066,8 @@ class CypherDialect(Dialect):
     """
 
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = Dialect.SUPPORTED_FEATURES | ALL_CYPHER_FEATURES
+
+    TRANSFORMATIONS: t.ClassVar[list] = [rewrite_cypher_predicates, *Dialect.TRANSFORMATIONS]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         "COLLECT_LIST": "COLLECT",

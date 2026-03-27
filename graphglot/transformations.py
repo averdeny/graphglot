@@ -10,7 +10,12 @@ import typing as t
 
 from graphglot import ast
 from graphglot.ast.base import Expression
-from graphglot.ast.cypher import CypherWithStatement
+from graphglot.ast.cypher import (
+    CypherChainedComparison,
+    CypherPatternPredicate,
+    CypherWithStatement,
+    StringMatchPredicate,
+)
 from graphglot.typing.types import TypeKind
 
 Transformation = t.Callable[[Expression], Expression]
@@ -202,6 +207,132 @@ def _build_next_statement(alqs: ast.AmbientLinearQueryStatement) -> ast.NextStat
         yield_clause=None,
         statement=cqe,
     )
+
+
+# ===========================================================================
+# rewrite_cypher_predicates — Cypher predicates → GQL equivalents
+# ===========================================================================
+
+
+def rewrite_cypher_predicates(tree: Expression) -> Expression:
+    """Rewrite Cypher-specific predicate nodes into standard GQL equivalents.
+
+    Walks the tree bottom-up and replaces:
+    - ``CypherChainedComparison`` → AND chain of ``ComparisonPredicate``
+    - ``StringMatchPredicate`` (STARTS WITH / ENDS WITH) → LEFT/RIGHT + comparison
+    - ``CypherPatternPredicate`` → ``ExistsPredicate``
+
+    CONTAINS is left untouched (no GQL equivalent).
+    """
+    for node in reversed(list(tree.dfs())):
+        replacement: Expression | None = None
+        if isinstance(node, CypherChainedComparison):
+            replacement = _rewrite_chained_comparison(node)
+        elif isinstance(node, StringMatchPredicate):
+            replacement = _rewrite_string_match(node)
+        elif isinstance(node, CypherPatternPredicate):
+            replacement = _rewrite_pattern_predicate(node)
+
+        if replacement is not None:
+            if getattr(node, "_start_token", None) is not None:
+                replacement.__dict__["_start_token"] = node._start_token
+            if getattr(node, "_end_token", None) is not None:
+                replacement.__dict__["_end_token"] = node._end_token
+            _replace_in_parent(node, replacement)
+    return tree
+
+
+def _rewrite_chained_comparison(node: CypherChainedComparison) -> Expression:
+    """``1 < n.num < 3`` → ``(1 < n.num AND n.num < 3)``.
+
+    The parser shares the middle operand between adjacent comparisons
+    (e.g. ``n.num`` is the same object in both ``1 < n.num`` and
+    ``n.num < 3``).  We deep-copy the ``comparison_predicand`` of every
+    comparison after the first so each ``ComparisonPredicate`` owns its
+    own subtree.
+    """
+    factors = []
+    for i, cmp in enumerate(node.comparisons):
+        if i > 0:
+            # The LHS of this comparison is shared with the RHS of the
+            # previous one — deep-copy to give each its own subtree.
+            cmp = ast.ComparisonPredicate._construct(
+                comparison_predicand=cmp.comparison_predicand.deep_copy(),
+                comparison_predicate_part_2=cmp.comparison_predicate_part_2,
+            )
+        bt = ast.BooleanTest._construct(boolean_primary=cmp, truth_value=None)
+        bf = ast.BooleanFactor._construct(not_=False, boolean_test=bt)
+        factors.append(bf)
+    bool_term = ast.BooleanTerm._construct(list_boolean_factor=factors)
+    bve = ast.BooleanValueExpression._construct(boolean_term=bool_term, ops=None)
+    return ast.ParenthesizedBooleanValueExpression._construct(
+        boolean_value_expression=bve,
+    )
+
+
+def _rewrite_string_match(node: StringMatchPredicate) -> Expression | None:
+    """``x STARTS WITH 'A'`` → ``LEFT(x, CHAR_LENGTH('A')) = 'A'``.
+
+    Returns None for CONTAINS (no GQL equivalent).
+    """
+    if node.kind == StringMatchPredicate.MatchKind.CONTAINS:
+        return None
+
+    mode = (
+        ast.SubstringFunction.Mode.LEFT
+        if node.kind == StringMatchPredicate.MatchKind.STARTS_WITH
+        else ast.SubstringFunction.Mode.RIGHT
+    )
+
+    # rhs is used in two places (CHAR_LENGTH and comparison RHS),
+    # so deep-copy to avoid shared parent pointers.
+    rhs_for_len = node.rhs.deep_copy()
+    rhs_for_cmp = node.rhs.deep_copy()
+
+    lhs_csve = ast.CharacterStringValueExpression._construct(
+        list_character_string_value_expression=[node.lhs],
+    )
+    rhs_csve = ast.CharacterStringValueExpression._construct(
+        list_character_string_value_expression=[rhs_for_len],
+    )
+
+    # CHAR_LENGTH(rhs) wrapped into NumericValueExpression
+    char_len = ast.CharLengthExpression._construct(
+        character_string_value_expression=rhs_csve,
+    )
+    factor = ast.Factor._construct(sign=None, numeric_primary=char_len)
+    term = ast.Term._construct(base=factor, steps=None)
+    nve = ast.NumericValueExpression._construct(base=term, steps=None)
+
+    # LEFT/RIGHT(lhs, CHAR_LENGTH(rhs))
+    substr = ast.SubstringFunction._construct(
+        mode=mode,
+        character_string_value_expression=lhs_csve,
+        string_length=nve,
+    )
+
+    # substr = rhs
+    part2 = ast.ComparisonPredicatePart2._construct(
+        comp_op=ast.ComparisonPredicatePart2.CompOp.EQUALS,
+        comparison_predicand=rhs_for_cmp,
+    )
+    return ast.ComparisonPredicate._construct(
+        comparison_predicand=substr,
+        comparison_predicate_part_2=part2,
+    )
+
+
+def _rewrite_pattern_predicate(node: CypherPatternPredicate) -> Expression:
+    """``(n)-[:KNOWS]->()`` → ``EXISTS { (n)-[:KNOWS]->() }``."""
+    ppl = ast.PathPatternList._construct(list_path_pattern=[node.pattern])
+    gp = ast.GraphPattern._construct(
+        match_mode=None,
+        path_pattern_list=ppl,
+        keep_clause=None,
+        graph_pattern_where_clause=None,
+    )
+    egp = ast.ExistsPredicate._ExistsGraphPattern._construct(graph_pattern=gp)
+    return ast.ExistsPredicate._construct(exists_predicate=egp)
 
 
 # ===========================================================================

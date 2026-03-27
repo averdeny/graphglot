@@ -153,11 +153,12 @@ class TestTranspileFeatureValidation(unittest.TestCase):
         self.assertIn("LIMIT", result[0])
 
     def test_cypher_feature_accepted_by_neo4j(self):
-        """STARTS WITH (CY:OP01) is supported by Neo4j — no error."""
+        """STARTS WITH (CY:OP01) is supported by Neo4j — transpiles to LEFT()."""
         neo4j = Dialect.get_or_raise("neo4j")
         result = neo4j.transpile('MATCH (n) WHERE n.name STARTS WITH "A" RETURN n')
         self.assertEqual(len(result), 1)
-        self.assertIn("STARTS WITH", result[0])
+        # Transform rewrites STARTS WITH → LEFT(...) = ...
+        self.assertIn("LEFT(", result[0])
 
     def test_path_search_rejected_by_coregql(self):
         """ANY SHORTEST (G005+G018) is optional and not supported by CoreGQL."""
@@ -170,8 +171,8 @@ class TestTranspileFeatureValidation(unittest.TestCase):
 
     # -- CLI command --
 
-    def test_cli_cypher_to_fullgql_unsupported(self):
-        """CLI: Neo4j STARTS WITH → FullGQL fails with non-zero exit."""
+    def test_cli_cypher_to_fullgql_starts_with(self):
+        """CLI: Neo4j STARTS WITH → FullGQL succeeds (rewritten to LEFT)."""
         runner = CliRunner()
         result = runner.invoke(
             cli,
@@ -184,8 +185,8 @@ class TestTranspileFeatureValidation(unittest.TestCase):
                 'MATCH (n) WHERE n.name STARTS WITH "A" RETURN n',
             ],
         )
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("CY:OP01", result.output)
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("LEFT(", result.output)
 
     def test_cli_optional_to_coregql_unsupported(self):
         """CLI: LIMIT → CoreGQL fails with non-zero exit."""
