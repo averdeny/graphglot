@@ -387,7 +387,10 @@ class Dialect(metaclass=_Dialect):
 
         # Transform + generate
         expressions = self.transform(result.expressions)
-        results = [self.generate(expression, copy=False, **opts) for expression in expressions]
+        try:
+            results = [self.generate(expression, copy=False, **opts) for expression in expressions]
+        except NotImplementedError as e:
+            raise FeatureError(str(e)) from e
 
         # Validate generated output
         self.validate_output(results)
