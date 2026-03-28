@@ -2448,6 +2448,15 @@ class TestExistsSubqueryScope(unittest.TestCase):
         )
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
+    def test_with_exists_synthetic_nodes(self):
+        """WITH + EXISTS: with_to_next builds synthetic nodes via _construct.
+
+        The scope validator must not flag variables inside EXISTS as undefined
+        even when parent pointers are absent (pruned DFS handles this).
+        """
+        result = _analyze("MATCH (n) WITH n WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
     def test_exists_var_not_visible_outside(self):
         """Variable defined inside EXISTS must NOT be visible in outer RETURN."""
         result = _analyze("MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN m")
