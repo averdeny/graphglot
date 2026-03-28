@@ -60,8 +60,6 @@ def transpile_cmd(
       echo "MATCH (n) RETURN n" | gg transpile -r fullgql -w neo4j
     """
     from graphglot.dialect import Dialect
-    from graphglot.dialect.base import _validate_for_dialect
-    from graphglot.error import FeatureError
 
     query_text = read_query(query=query, file_path=file_, query_or_file=query_or_file)
 
@@ -78,18 +76,17 @@ def transpile_cmd(
         )
         raise SystemExit(f"Error: {msgs}") from None
 
-    # Transform
+    # Transform (with_to_next + resolve_ambiguous) + generate with write dialect
     expressions = read_d.transform(validation.expressions)
-
-    # Validate output against the write dialect (AST features + semantic analysis)
-    try:
-        _validate_for_dialect(expressions, write_d)
-    except FeatureError as e:
-        raise SystemExit(f"Error: {e}") from None
-
     results = [
         write_d.generate(expression, copy=False, pretty=pretty_print) for expression in expressions
     ]
+
+    # Validate generated output against the write dialect
+    try:
+        write_d.validate_output(results)
+    except Exception as e:
+        raise SystemExit(f"Error: {e}") from None
 
     if output_format.lower() == "json":
         click.echo(json.dumps(results, indent=2))

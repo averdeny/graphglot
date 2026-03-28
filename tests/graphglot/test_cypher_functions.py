@@ -253,7 +253,7 @@ class TestFuncDialectGating(unittest.TestCase):
 
     def test_randomuuid_fails_under_coregql(self):
         d = Dialect.get_or_raise("coregql")
-        with self.assertRaises((FeatureError, ParseError)):
+        with self.assertRaises((FeatureError, ParseError, NotImplementedError)):
             d.transpile("RETURN randomUUID()")
 
     def test_timestamp_fails_under_coregql(self):

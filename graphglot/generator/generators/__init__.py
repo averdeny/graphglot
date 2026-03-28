@@ -7,6 +7,7 @@ from graphglot.generator.generators import (  # noqa: F401
     clauses,
     commands,
     core,
+    cypher_compat,
     expressions,
     literals,
     macros,

@@ -153,12 +153,11 @@ class TestTranspileFeatureValidation(unittest.TestCase):
         self.assertIn("LIMIT", result[0])
 
     def test_cypher_feature_accepted_by_neo4j(self):
-        """STARTS WITH (CY:OP01) is supported by Neo4j — transpiles to LEFT()."""
+        """STARTS WITH (CY:OP01) is supported by Neo4j — no error."""
         neo4j = Dialect.get_or_raise("neo4j")
         result = neo4j.transpile('MATCH (n) WHERE n.name STARTS WITH "A" RETURN n')
         self.assertEqual(len(result), 1)
-        # Transform rewrites STARTS WITH → LEFT(...) = ...
-        self.assertIn("LEFT(", result[0])
+        self.assertIn("STARTS WITH", result[0])
 
     def test_path_search_rejected_by_coregql(self):
         """ANY SHORTEST (G005+G018) is optional and not supported by CoreGQL."""

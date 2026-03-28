@@ -365,12 +365,12 @@ class Dialect(metaclass=_Dialect):
     def transpile(self, query: str, **opts: t.Any) -> list[str]:
         """Parse a query and re-generate it using this dialect.
 
-        Equivalent to validate → transform → validate → generate for each
-        statement.  For cross-dialect transpilation, use the top-level
+        Equivalent to validate → transform → generate → validate-output for
+        each statement.  For cross-dialect transpilation, use the top-level
         ``gg transpile`` CLI command.
 
         Raises:
-            FeatureError: If the query or the transformed AST requires
+            FeatureError: If the query or the generated output requires
                 features not supported by this dialect.
             TokenError: If the query cannot be tokenized.
             ParseError: If the query cannot be parsed.
@@ -385,13 +385,34 @@ class Dialect(metaclass=_Dialect):
             msgs = "; ".join(d.message for d in result.diagnostics)
             raise FeatureError(msgs)
 
-        # Transform
+        # Transform + generate
         expressions = self.transform(result.expressions)
+        results = [self.generate(expression, copy=False, **opts) for expression in expressions]
 
-        # Validate output (AST features + semantic analysis)
-        _validate_for_dialect(expressions, self)
+        # Validate generated output
+        self.validate_output(results)
 
-        return [self.generate(expression, copy=False, **opts) for expression in expressions]
+        return results
+
+    def validate_output(self, generated: list[str]) -> None:
+        """Validate generated query strings against this dialect.
+
+        Re-parses each string with this dialect's parser, runs feature and
+        function validation.  Raises :class:`FeatureError` if any output
+        uses features or functions not supported by this dialect.
+        """
+        from graphglot.error import FeatureError
+
+        output_expressions = []
+        for text in generated:
+            result = self.validate(text)
+            if not result.success:
+                if result.error:
+                    raise result.error
+                msgs = "; ".join(d.message for d in result.diagnostics)
+                raise FeatureError(msgs)
+            output_expressions.extend(result.expressions)
+        _validate_functions_for_dialect(output_expressions, self)
 
     def analyze(
         self,
@@ -533,36 +554,6 @@ class Dialect(metaclass=_Dialect):
             features=features,
             expressions=expressions,
             query=query,
-        )
-
-
-def _validate_for_dialect(expressions: list[Expression], dialect: Dialect) -> None:
-    """Validate AST features and run semantic analysis against *dialect*.
-
-    Raises :class:`FeatureError` if any expression uses features that
-    the dialect does not support.
-    """
-    from graphglot.analysis import SemanticAnalyzer
-    from graphglot.ast.validation import validate_expression_features
-    from graphglot.error import FeatureError
-
-    for expression in expressions:
-        validate_expression_features(expression, dialect, context="transpilation")
-
-    _validate_functions_for_dialect(expressions, dialect)
-
-    analyzer = SemanticAnalyzer()
-    all_diagnostics = []
-    for expression in expressions:
-        result = analyzer.analyze(expression, dialect)
-        all_diagnostics.extend(result.diagnostics)
-
-    if all_diagnostics:
-        msgs = "; ".join(d.message for d in all_diagnostics)
-        feature_ids = ", ".join(sorted({d.feature_id for d in all_diagnostics}))
-        raise FeatureError(
-            msgs,
-            feature_id=feature_ids,
         )
 
 

@@ -2387,32 +2387,26 @@ class TestDistinctOrderByScope(unittest.TestCase):
 
 
 # ===========================================================================
-# WHERE pattern predicate — rewritten to EXISTS
+# WHERE pattern predicate — unbounded variables
 # ===========================================================================
 
 
 class TestWherePatternPredicateScope(unittest.TestCase):
-    """Pattern predicates in WHERE are rewritten to EXISTS, allowing new bindings."""
+    """Cypher pattern predicates in WHERE must not introduce new variables."""
 
     def test_new_edge_in_where_pattern(self):
-        """MATCH (n) WHERE (n)-[r]->() RETURN n → no diagnostic.
-
-        After rewrite_cypher_predicates, the pattern predicate becomes
-        EXISTS { (n)-[r]->() }, and new variables inside EXISTS are
-        legitimately scoped.
-        """
+        """MATCH (n) WHERE (n)-[r]->() RETURN n → diagnostic (r undefined)."""
         result = _analyze("MATCH (n) WHERE (n)-[r]->() RETURN n")
-        self.assertNotIn("undefined-variable", _feature_ids(result))
+        self.assertIn("undefined-variable", _feature_ids(result))
+        msgs = _messages_for(result, "undefined-variable")
+        self.assertTrue(any("r" in m for m in msgs))
 
     def test_new_node_in_where_pattern(self):
-        """MATCH (n) WHERE (a) RETURN n → no diagnostic.
-
-        After rewrite_cypher_predicates, the pattern predicate becomes
-        EXISTS { (a) }, and new variables inside EXISTS are
-        legitimately scoped.
-        """
+        """MATCH (n) WHERE (a) RETURN n → diagnostic (a undefined)."""
         result = _analyze("MATCH (n) WHERE (a) RETURN n")
-        self.assertNotIn("undefined-variable", _feature_ids(result))
+        self.assertIn("undefined-variable", _feature_ids(result))
+        msgs = _messages_for(result, "undefined-variable")
+        self.assertTrue(any("a" in m for m in msgs))
 
     def test_normal_where_ok(self):
         """MATCH (n) WHERE n.active RETURN n → no diagnostic."""
@@ -2452,16 +2446,6 @@ class TestExistsSubqueryScope(unittest.TestCase):
             "MATCH (n) WHERE EXISTS { FOR x IN LIST [1, 2] FILTER WHERE x > 0 RETURN x } RETURN n",
             dialect=_full,
         )
-        self.assertNotIn("undefined-variable", _feature_ids(result))
-
-    def test_exists_via_any_rewrite(self):
-        """any(x IN list WHERE pred) is rewritten to EXISTS { FOR x ... } — no false positive."""
-        result = _analyze("MATCH (n) WHERE any(x IN n.list WHERE x > 0) RETURN n")
-        self.assertNotIn("undefined-variable", _feature_ids(result))
-
-    def test_exists_via_all_rewrite(self):
-        """all() rewritten to NOT EXISTS { FOR x WHERE NOT pred } — no false positive."""
-        result = _analyze("MATCH (n) WHERE all(x IN n.list WHERE x > 0) RETURN n")
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_exists_var_not_visible_outside(self):
