@@ -10,7 +10,6 @@ These rules fire unconditionally — they are not gated on dialect features.
 
 from __future__ import annotations
 
-import typing as t
 import unittest
 
 from graphglot.analysis import AnalysisResult, SemanticAnalyzer
@@ -972,22 +971,19 @@ class TestListComprehensionScope(unittest.TestCase):
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_all_predicate(self):
-        """all(x IN ...) rewritten to NOT EXISTS { FOR x ... } — scope validator
-        false positive: FOR-introduced variable not tracked in synthetic subquery."""
+        """MATCH (n) RETURN all(x IN n.list WHERE x > 0) → no diagnostic."""
         result = _analyze("MATCH (n) RETURN all(x IN n.list WHERE x > 0)")
-        # TODO: false positive — scope validator doesn't track FOR bindings
-        # in synthetically constructed NestedQuerySpecification subqueries.
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_any_predicate(self):
-        """any(x IN ...) rewritten to EXISTS { FOR x ... } — same false positive."""
+        """MATCH (n) RETURN any(x IN n.list WHERE x > 0) → no diagnostic."""
         result = _analyze("MATCH (n) RETURN any(x IN n.list WHERE x > 0)")
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_none_predicate(self):
-        """none(x IN ...) rewritten to NOT EXISTS { FOR x ... } — same false positive."""
+        """MATCH (n) RETURN none(x IN n.list WHERE x > 0) → no diagnostic."""
         result = _analyze("MATCH (n) RETURN none(x IN n.list WHERE x > 0)")
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_single_predicate(self):
         """MATCH (n) RETURN single(x IN n.list WHERE x = 1) → no diagnostic."""
@@ -2298,22 +2294,12 @@ class TestIntegrationQueriesNoFalsePositives(unittest.TestCase):
     cross-check will fail for the same query.
     """
 
-    # TODO: rewrite_list_predicates transforms all/any/none into
-    # EXISTS { FOR x ... }, but the scope validator doesn't track FOR
-    # bindings in synthetic subqueries. Exclude these until the scope
-    # validator is enhanced.
-    _KNOWN_SCOPE_FALSE_POSITIVES: t.ClassVar[set[str]] = {
-        "cy_all_predicate",
-        "cy_any_predicate",
-        "cy_none_predicate",
-    }
-
     def test_no_scope_false_positives(self):
         from tests.graphglot.integration.queries import ALL_QUERY_CASES
 
         failures: list[str] = []
         for tc in ALL_QUERY_CASES:
-            if tc.xfail or tc.unsupported or tc.id in self._KNOWN_SCOPE_FALSE_POSITIVES:
+            if tc.xfail or tc.unsupported:
                 continue
             result = _analyze(tc.gql)
             scope_diags = [
@@ -2442,6 +2428,51 @@ class TestWherePatternPredicateScope(unittest.TestCase):
         """Pattern predicate inside EXISTS is in its own scope — no false positive."""
         result = _analyze("MATCH (n) WHERE EXISTS { MATCH (m) WHERE (m)-[r]->() } RETURN n")
         self.assertNotIn("undefined-variable", _feature_ids(result))
+
+
+class TestExistsSubqueryScope(unittest.TestCase):
+    """Variables inside EXISTS subqueries must not leak to the outer scope."""
+
+    def test_exists_with_match_new_var(self):
+        """New variable inside EXISTS { MATCH } is scoped — no false positive."""
+        result = _analyze("MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN n")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_exists_for_new_var(self):
+        """FOR inside EXISTS introduces a new variable — no false positive."""
+        result = _analyze(
+            "MATCH (n) WHERE EXISTS { FOR x IN LIST [1, 2, 3] RETURN x } RETURN n",
+            dialect=_full,
+        )
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_exists_for_with_filter(self):
+        """FOR + FILTER inside EXISTS — variable used in filter is scoped."""
+        result = _analyze(
+            "MATCH (n) WHERE EXISTS { FOR x IN LIST [1, 2] FILTER WHERE x > 0 RETURN x } RETURN n",
+            dialect=_full,
+        )
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_exists_via_any_rewrite(self):
+        """any(x IN list WHERE pred) is rewritten to EXISTS { FOR x ... } — no false positive."""
+        result = _analyze("MATCH (n) WHERE any(x IN n.list WHERE x > 0) RETURN n")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_exists_via_all_rewrite(self):
+        """all() rewritten to NOT EXISTS { FOR x WHERE NOT pred } — no false positive."""
+        result = _analyze("MATCH (n) WHERE all(x IN n.list WHERE x > 0) RETURN n")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_exists_var_not_visible_outside(self):
+        """Variable defined inside EXISTS must NOT be visible in outer RETURN."""
+        result = _analyze("MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN m")
+        self.assertIn("undefined-variable", _feature_ids(result))
+
+    def test_outer_var_undefined_with_exists(self):
+        """Undefined outer variable is still flagged even with EXISTS present."""
+        result = _analyze("MATCH (n) WHERE EXISTS { MATCH (n)-[r]->(m) } RETURN z")
+        self.assertIn("undefined-variable", _feature_ids(result))
 
 
 # ===========================================================================

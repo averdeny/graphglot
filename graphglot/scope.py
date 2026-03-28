@@ -162,10 +162,15 @@ def extract_variable_references(subtree: ast.Expression) -> dict[str, ast.Identi
     the enclosing scope.
     """
     refs: dict[str, ast.Identifier] = {}
-    for ident in subtree.find_all(ast.Identifier):
-        if isinstance(ident, ast.Identifier) and is_variable_reference(ident):
-            if not is_inside_nested_subquery(ident, subtree):
-                refs.setdefault(ident.name, ident)
+    # Pruned DFS: don't descend into subquery boundaries so variables bound
+    # inside nested subqueries are invisible to the outer scope.  This
+    # replaces find_all + is_inside_nested_subquery which relied on _parent
+    # pointers (broken for nodes built by _construct in transformations).
+    for node in subtree.dfs(
+        prune=lambda n: n is not subtree and isinstance(n, SUBQUERY_BOUNDARY_TYPES),
+    ):
+        if isinstance(node, ast.Identifier) and is_variable_reference(node):
+            refs.setdefault(node.name, node)
     # Subtract LET-bound names — they're defined within the subtree.
     let_bound = extract_let_bound_names(subtree)
     if let_bound:
