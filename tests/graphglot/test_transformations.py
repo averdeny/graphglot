@@ -3,7 +3,8 @@
 Covers:
 - with_to_next: Cypher WITH → GQL RETURN...NEXT chain
 - resolve_ambiguous: Ambiguous AST → concrete GQL types
-- rewrite_cypher_predicates: Cypher predicates → GQL equivalents
+- rewrite_chained_comparisons / rewrite_string_matches / rewrite_pattern_predicates
+- rewrite_list_predicates: all/any/none → EXISTS subquery
 - Dialect.transform() integration
 """
 
@@ -14,13 +15,17 @@ from graphglot.ast.cypher import (
     CypherChainedComparison,
     CypherPatternPredicate,
     CypherWithStatement,
+    ListPredicateFunction,
     StringMatchPredicate,
 )
 from graphglot.dialect.base import Dialect
 from graphglot.dialect.neo4j import Neo4j
 from graphglot.transformations import (
     resolve_ambiguous,
-    rewrite_cypher_predicates,
+    rewrite_chained_comparisons,
+    rewrite_list_predicates,
+    rewrite_pattern_predicates,
+    rewrite_string_matches,
     with_to_next,
 )
 from graphglot.typing import ExternalContext, GqlType, TypeAnnotator
@@ -584,7 +589,7 @@ class TestResolveAmbiguous(unittest.TestCase):
 
 
 class TestRewriteCypherPredicates(unittest.TestCase):
-    """Test rewrite_cypher_predicates transformation function."""
+    """Test Cypher → GQL predicate rewrite transformations."""
 
     def setUp(self):
         self.neo4j = Neo4j()
@@ -596,7 +601,10 @@ class TestRewriteCypherPredicates(unittest.TestCase):
 
     def _transform(self, query: str) -> ast.Expression:
         tree = self._parse_one(query)
-        return rewrite_cypher_predicates(tree)
+        tree = rewrite_chained_comparisons(tree)
+        tree = rewrite_string_matches(tree)
+        tree = rewrite_pattern_predicates(tree)
+        return tree
 
     def _generate(self, tree: ast.Expression) -> str:
         return self.neo4j.generate(tree)
@@ -644,8 +652,8 @@ class TestRewriteCypherPredicates(unittest.TestCase):
     def test_chained_comparison_idempotent(self):
         """Applying the transform twice produces the same output."""
         tree = self._parse_one("MATCH (n) WHERE 1 < n.num < 3 RETURN n.num")
-        once = rewrite_cypher_predicates(tree)
-        twice = rewrite_cypher_predicates(once)
+        once = rewrite_chained_comparisons(tree)
+        twice = rewrite_chained_comparisons(once)
         self.assertEqual(self._generate(once), self._generate(twice))
 
     # ------------------------------------------------------------------
@@ -727,17 +735,113 @@ class TestRewriteCypherPredicates(unittest.TestCase):
     def test_pattern_predicate_idempotent(self):
         """Applying the transform twice produces the same output."""
         tree = self._parse_one("MATCH (a), (b) WHERE (a)-[:T]->(b) RETURN b")
-        once = rewrite_cypher_predicates(tree)
-        twice = rewrite_cypher_predicates(once)
+        once = rewrite_pattern_predicates(tree)
+        twice = rewrite_pattern_predicates(once)
         self.assertEqual(self._generate(once), self._generate(twice))
 
     # ------------------------------------------------------------------
-    # Integration: Dialect.transform() applies rewrite
+    # Integration: Dialect.transform() applies rewrites
     # ------------------------------------------------------------------
 
     def test_dialect_transform_applies_rewrite(self):
-        """neo4j.transform() should apply rewrite_cypher_predicates."""
+        """neo4j.transform() should apply all predicate rewrites."""
         trees = self.neo4j.parse("MATCH (n) WHERE 1 < n.num < 3 RETURN n.num")
         transformed = self.neo4j.transform(trees)
         found = list(transformed[0].find_all(CypherChainedComparison))
+        self.assertEqual(found, [], "Dialect.transform() should apply the rewrite")
+
+
+class TestRewriteListPredicates(unittest.TestCase):
+    """Test rewrite_list_predicates transformation."""
+
+    def setUp(self):
+        self.neo4j = Neo4j()
+
+    def _parse_one(self, query: str) -> ast.Expression:
+        trees = self.neo4j.parse(query)
+        self.assertEqual(len(trees), 1)
+        return trees[0]
+
+    def _transform(self, query: str) -> ast.Expression:
+        tree = self._parse_one(query)
+        return rewrite_list_predicates(tree)
+
+    def _generate(self, tree: ast.Expression) -> str:
+        return self.neo4j.generate(tree)
+
+    # ------------------------------------------------------------------
+    # any → EXISTS { ... }
+    # ------------------------------------------------------------------
+
+    def test_any_rewritten_to_exists(self):
+        """any(x IN [1,2,3] WHERE x > 1) → EXISTS { FOR ... }."""
+        result = self._transform("MATCH (n) WHERE any(x IN n.tags WHERE x = 'a') RETURN n")
+        found = list(result.find_all(ListPredicateFunction))
+        self.assertEqual(found, [], "ListPredicateFunction should be rewritten")
+        exists = list(result.find_all(ast.ExistsPredicate))
+        self.assertGreater(len(exists), 0, "ExistsPredicate should be present")
+        generated = self._generate(result)
+        self.assertIn("EXISTS", generated)
+
+    # ------------------------------------------------------------------
+    # none → NOT EXISTS { ... }
+    # ------------------------------------------------------------------
+
+    def test_none_rewritten_to_not_exists(self):
+        """none(x IN list WHERE x < 0) → NOT EXISTS { FOR ... }."""
+        result = self._transform("MATCH (n) WHERE none(x IN n.scores WHERE x < 0) RETURN n")
+        found = list(result.find_all(ListPredicateFunction))
+        self.assertEqual(found, [], "ListPredicateFunction should be rewritten")
+        generated = self._generate(result)
+        self.assertIn("NOT", generated)
+        self.assertIn("EXISTS", generated)
+
+    # ------------------------------------------------------------------
+    # all → NOT EXISTS { ... WHERE NOT ... }
+    # ------------------------------------------------------------------
+
+    def test_all_rewritten_to_not_exists_not(self):
+        """all(x IN list WHERE x > 0) → NOT EXISTS { FOR x WHERE NOT x > 0 }."""
+        result = self._transform("MATCH (n) WHERE all(x IN n.vals WHERE x > 0) RETURN n")
+        found = list(result.find_all(ListPredicateFunction))
+        self.assertEqual(found, [], "ListPredicateFunction should be rewritten")
+        generated = self._generate(result)
+        self.assertIn("NOT", generated)
+        self.assertIn("EXISTS", generated)
+
+    # ------------------------------------------------------------------
+    # single → NOT rewritten
+    # ------------------------------------------------------------------
+
+    def test_single_not_rewritten(self):
+        """single() has no GQL equivalent — must survive the transform."""
+        result = self._transform("MATCH (n) WHERE single(x IN n.vals WHERE x = 1) RETURN n")
+        found = list(result.find_all(ListPredicateFunction))
+        self.assertEqual(len(found), 1, "single() should NOT be rewritten")
+        self.assertEqual(found[0].kind, ListPredicateFunction.Kind.SINGLE)
+
+    # ------------------------------------------------------------------
+    # Idempotency and context
+    # ------------------------------------------------------------------
+
+    def test_list_predicate_idempotent(self):
+        """Applying the transform twice produces the same output."""
+        tree = self._parse_one("MATCH (n) WHERE any(x IN n.tags WHERE x = 'a') RETURN n")
+        once = rewrite_list_predicates(tree)
+        twice = rewrite_list_predicates(once)
+        self.assertEqual(self._generate(once), self._generate(twice))
+
+    def test_list_predicate_in_return(self):
+        """List predicate in RETURN context is also rewritten."""
+        result = self._transform("MATCH (n) RETURN any(x IN [1, 2, 3] WHERE x > 1) AS has_big")
+        found = list(result.find_all(ListPredicateFunction))
+        self.assertEqual(found, [], "ListPredicateFunction in RETURN should be rewritten")
+        generated = self._generate(result)
+        self.assertIn("EXISTS", generated)
+
+    def test_dialect_transform_applies_list_predicate(self):
+        """neo4j.transform() should apply rewrite_list_predicates."""
+        trees = self.neo4j.parse("MATCH (n) WHERE any(x IN n.tags WHERE x = 'a') RETURN n")
+        transformed = self.neo4j.transform(trees)
+        found = list(transformed[0].find_all(ListPredicateFunction))
         self.assertEqual(found, [], "Dialect.transform() should apply the rewrite")

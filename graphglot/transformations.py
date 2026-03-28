@@ -14,6 +14,7 @@ from graphglot.ast.cypher import (
     CypherChainedComparison,
     CypherPatternPredicate,
     CypherWithStatement,
+    ListPredicateFunction,
     StringMatchPredicate,
 )
 from graphglot.typing.types import TypeKind
@@ -210,29 +211,26 @@ def _build_next_statement(alqs: ast.AmbientLinearQueryStatement) -> ast.NextStat
 
 
 # ===========================================================================
-# rewrite_cypher_predicates — Cypher predicates → GQL equivalents
+# Cypher → GQL expression rewrites (each is an independent Transformation)
 # ===========================================================================
 
 
-def rewrite_cypher_predicates(tree: Expression) -> Expression:
-    """Rewrite Cypher-specific predicate nodes into standard GQL equivalents.
+_E = t.TypeVar("_E", bound=Expression)
 
-    Walks the tree bottom-up and replaces:
-    - ``CypherChainedComparison`` → AND chain of ``ComparisonPredicate``
-    - ``StringMatchPredicate`` (STARTS WITH / ENDS WITH) → LEFT/RIGHT + comparison
-    - ``CypherPatternPredicate`` → ``ExistsPredicate``
 
-    CONTAINS is left untouched (no GQL equivalent).
+def _rewrite_nodes(
+    tree: Expression,
+    node_type: type[_E],
+    rewriter: t.Callable[[_E], Expression | None],
+) -> Expression:
+    """Walk *tree* bottom-up, replacing nodes of *node_type* via *rewriter*.
+
+    Shared driver for all Cypher → GQL expression rewrites.
     """
     for node in reversed(list(tree.dfs())):
-        replacement: Expression | None = None
-        if isinstance(node, CypherChainedComparison):
-            replacement = _rewrite_chained_comparison(node)
-        elif isinstance(node, StringMatchPredicate):
-            replacement = _rewrite_string_match(node)
-        elif isinstance(node, CypherPatternPredicate):
-            replacement = _rewrite_pattern_predicate(node)
-
+        if not isinstance(node, node_type):
+            continue
+        replacement = rewriter(node)
         if replacement is not None:
             if getattr(node, "_start_token", None) is not None:
                 replacement.__dict__["_start_token"] = node._start_token
@@ -240,6 +238,24 @@ def rewrite_cypher_predicates(tree: Expression) -> Expression:
                 replacement.__dict__["_end_token"] = node._end_token
             _replace_in_parent(node, replacement)
     return tree
+
+
+def rewrite_chained_comparisons(tree: Expression) -> Expression:
+    """Rewrite ``CypherChainedComparison`` → AND chain of ``ComparisonPredicate``."""
+    return _rewrite_nodes(tree, CypherChainedComparison, _rewrite_chained_comparison)
+
+
+def rewrite_string_matches(tree: Expression) -> Expression:
+    """Rewrite ``StringMatchPredicate`` (STARTS/ENDS WITH) → LEFT/RIGHT + comparison.
+
+    CONTAINS is left untouched (no GQL equivalent).
+    """
+    return _rewrite_nodes(tree, StringMatchPredicate, _rewrite_string_match)
+
+
+def rewrite_pattern_predicates(tree: Expression) -> Expression:
+    """Rewrite ``CypherPatternPredicate`` → ``ExistsPredicate``."""
+    return _rewrite_nodes(tree, CypherPatternPredicate, _rewrite_pattern_predicate)
 
 
 def _rewrite_chained_comparison(node: CypherChainedComparison) -> Expression:
@@ -333,6 +349,115 @@ def _rewrite_pattern_predicate(node: CypherPatternPredicate) -> Expression:
     )
     egp = ast.ExistsPredicate._ExistsGraphPattern._construct(graph_pattern=gp)
     return ast.ExistsPredicate._construct(exists_predicate=egp)
+
+
+# ---------------------------------------------------------------------------
+# rewrite_list_predicates — all/any/none → EXISTS subquery
+# ---------------------------------------------------------------------------
+
+
+def rewrite_list_predicates(tree: Expression) -> Expression:
+    """Rewrite Cypher ``all/any/none(x IN list WHERE pred)`` to GQL EXISTS subqueries.
+
+    - ``any(x IN L WHERE P)``  → ``EXISTS { FOR x IN L WHERE P RETURN x }``
+    - ``none(x IN L WHERE P)`` → ``NOT EXISTS { FOR x IN L WHERE P RETURN x }``
+    - ``all(x IN L WHERE P)``  → ``NOT EXISTS { FOR x IN L WHERE NOT (P) RETURN x }``
+
+    ``single()`` is left untouched (no GQL equivalent).
+
+    .. note::
+       Cypher's three-valued null semantics are not fully preserved.
+       ``all(x IN [1, null] WHERE x > 0)`` returns ``null`` in Cypher but
+       ``true`` with this rewrite, because ``WHERE`` filters out null
+       predicate results.
+    """
+    return _rewrite_nodes(tree, ListPredicateFunction, _rewrite_list_predicate)
+
+
+def _rewrite_list_predicate(node: ListPredicateFunction) -> Expression | None:
+    """Rewrite a single ``all/any/none`` to an EXISTS subquery. Skip ``single``."""
+    if node.kind == ListPredicateFunction.Kind.SINGLE:
+        return None
+
+    # FOR x IN L
+    for_stmt = ast.ForStatement._construct(
+        for_item=ast.ForItem._construct(
+            for_item_alias=ast.ForItemAlias._construct(binding_variable=node.variable),
+            for_item_source=node.source,
+        ),
+        for_ordinality_or_offset=None,
+    )
+
+    # WHERE P (or WHERE NOT (P) for ALL)
+    predicate = node.predicate
+    if node.kind == ListPredicateFunction.Kind.ALL:
+        predicate = _negate_search_condition(predicate)
+    filter_stmt = ast.FilterStatement._construct(
+        filter_statement=ast.WhereClause._construct(search_condition=predicate),
+    )
+
+    # RETURN x
+    return_item = ast.ReturnItem._construct(
+        aggregating_value_expression=ast.BindingVariableReference._construct(
+            binding_variable=node.variable.deep_copy(),
+        ),
+        return_item_alias=None,
+    )
+    ret_body_inner = ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause._construct(
+        set_quantifier=None,
+        return_item_list=ast.ReturnItemList._construct(list_return_item=[return_item]),
+        group_by_clause=None,
+    )
+    ret = ast.ReturnStatement._construct(
+        return_statement_body=ast.ReturnStatementBody._construct(
+            return_statement_body=ret_body_inner,
+        ),
+    )
+    prs_inner = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement._construct(
+        return_statement=ret,
+        order_by_and_page_statement=None,
+    )
+    prs = ast.PrimitiveResultStatement._construct(primitive_result_statement=prs_inner)
+
+    # Assemble: FOR + WHERE → ALQS → CQE → StatementBlock → ProcedureBody → NQS → EXISTS
+    alqs = _build_alqs([for_stmt, filter_stmt], prs)
+    cqe = _wrap_in_cqe(alqs)
+    sb = ast.StatementBlock._construct(statement=cqe, list_next_statement=None)
+    proc_body = ast.ProcedureBody._construct(
+        at_schema_clause=None,
+        binding_variable_definition_block=None,
+        statement_block=sb,
+    )
+    nqs = ast.NestedQuerySpecification._construct(query_specification=proc_body)
+    exists = ast.ExistsPredicate._construct(exists_predicate=nqs)
+
+    # any → EXISTS { ... }
+    if node.kind == ListPredicateFunction.Kind.ANY:
+        return exists
+
+    # none, all → (NOT EXISTS { ... })
+    bt = ast.BooleanTest._construct(boolean_primary=exists, truth_value=None)
+    bf = ast.BooleanFactor._construct(not_=True, boolean_test=bt)
+    bool_term = ast.BooleanTerm._construct(list_boolean_factor=[bf])
+    bve = ast.BooleanValueExpression._construct(boolean_term=bool_term, ops=None)
+    return ast.ParenthesizedBooleanValueExpression._construct(boolean_value_expression=bve)
+
+
+def _negate_search_condition(
+    bve: ast.BooleanValueExpression,
+) -> ast.BooleanValueExpression:
+    """Negate a BooleanValueExpression: ``P`` → ``NOT (P)``.
+
+    Wraps in parentheses first (BVE → PBVE → BooleanPrimary), then applies
+    NOT, returning a valid BooleanValueExpression (SearchCondition).
+    """
+    pbve = ast.ParenthesizedBooleanValueExpression._construct(
+        boolean_value_expression=bve,
+    )
+    bt = ast.BooleanTest._construct(boolean_primary=pbve, truth_value=None)
+    bf = ast.BooleanFactor._construct(not_=True, boolean_test=bt)
+    bool_term = ast.BooleanTerm._construct(list_boolean_factor=[bf])
+    return ast.BooleanValueExpression._construct(boolean_term=bool_term, ops=None)
 
 
 # ===========================================================================

@@ -12,7 +12,6 @@ from graphglot.generator import func_generators
 from graphglot.generator.generators.patterns import generate_quantified_path_primary
 from graphglot.lexer import TokenType
 from graphglot.parser import Parser as BaseParser
-from graphglot.transformations import with_to_next
 
 # ==============================================================================
 # Unsupported Mandatory GQL Features not supported by Neo4j:
@@ -223,8 +222,6 @@ class Neo4j(CypherDialect):
         | _NEO4J_SUPPORTED_OPTIONAL
         | ALL_CYPHER_FEATURES
     )
-
-    TRANSFORMATIONS: t.ClassVar[list] = [with_to_next, *CypherDialect.TRANSFORMATIONS]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         **CypherDialect.KEYWORD_OVERRIDES,
