@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v0.6.0 (2026-03-28)
+
+### Bug Fixes
+
+- Use pruned DFS in extract_variable_references to fix synthetic subquery scoping
+  ([`6fb7d32`](https://github.com/averdeny/graphglot/commit/6fb7d328e171bbdc831cced0ebb1b5e5cdf3606d))
+
+### Documentation
+
+- Remove gql_features.md and tck.md
+  ([`bea2eae`](https://github.com/averdeny/graphglot/commit/bea2eae43c09d17ac1770f60a0d54b634cac9bc9))
+
+### Features
+
+- Add list predicate rewrites and split transformations into composable functions
+  ([`cc7bd9f`](https://github.com/averdeny/graphglot/commit/cc7bd9fcc7a5f0318883fa901da7c1bad34b681a))
+
+- Add rewrite_cypher_predicates transformation for Cypher→GQL transpilation
+  ([`999419f`](https://github.com/averdeny/graphglot/commit/999419f9c0f729ab6ed96d8a397f75d796365667))
+
+- Parse temporal casts and duration.between into GQL AST at parse time
+  ([`a11b440`](https://github.com/averdeny/graphglot/commit/a11b4403451dc5f4ca1bfb051ad3e029b17e5677))
+
+
 ## v0.5.0 (2026-03-25)
 
 ### Features
