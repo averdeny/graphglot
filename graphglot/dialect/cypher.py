@@ -681,29 +681,42 @@ def _token_to_cast_target(token_type: TokenType) -> ast.ValueType:
         )
 
 
+_TEMPORAL_CAST_TARGETS: dict[TemporalBaseType, type[ast.ValueType]] = {
+    TemporalBaseType.DATE: ast.DateType,
+    TemporalBaseType.TIME: ast.TimeType,
+    TemporalBaseType.DATETIME: ast.DatetimeType,
+    TemporalBaseType.LOCALDATETIME: ast.LocaldatetimeType,
+    TemporalBaseType.LOCALTIME: ast.LocaltimeType,
+    # DURATION omitted — requires a qualifier not available in Cypher
+}
+
+
+def _cast_as_cve(arg: ast.ValueExpression, cast_target: ast.ValueType) -> ast.CommonValueExpression:
+    """Wrap ``CAST(arg AS target)`` in the CVE hierarchy.
+
+    CastSpecification is a NonParenthesizedValueExpressionPrimary, so it must
+    be wrapped in ArithmeticFactor → ArithmeticTerm → ArithmeticValueExpression
+    to produce a ``CommonValueExpression``.
+    """
+    cast_spec = ast.CastSpecification(cast_operand=arg, cast_target=cast_target)
+    return ast.ArithmeticValueExpression(
+        base=ast.ArithmeticTerm(
+            base=ast.ArithmeticFactor(arithmetic_primary=cast_spec),
+        ),
+    )
+
+
 def _parse_cypher_type_conversion(parser: BaseParser) -> ast.CommonValueExpression:
     """Parse ``toBoolean/toInteger/toFloat/toString ( expression )``.
 
-    Creates a :class:`CastSpecification` and wraps it in the CVE hierarchy
-    (ArithmeticFactor → ArithmeticTerm → ArithmeticValueExpression) so the
-    result is a proper ``CommonValueExpression``.
+    Creates a :class:`CastSpecification` and wraps it in the CVE hierarchy.
     """
     tok = parser._curr
     parser._advance()  # consume the function keyword
     parser._expect(TokenType.LEFT_PAREN)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-
-    cast_spec = ast.CastSpecification(
-        cast_operand=arg,
-        cast_target=_token_to_cast_target(tok.token_type),
-    )
-    # Wrap in CVE hierarchy: CastSpecification (NPVEP) → Factor → Term → AVE
-    return ast.ArithmeticValueExpression(
-        base=ast.ArithmeticTerm(
-            base=ast.ArithmeticFactor(arithmetic_primary=cast_spec),
-        ),
-    )
+    return _cast_as_cve(arg, _token_to_cast_target(tok.token_type))
 
 
 def _parse_cypher_pattern_predicate(parser: BaseParser) -> CypherPatternPredicate:
@@ -1273,11 +1286,11 @@ def _parse_cypher_value_expression(parser: BaseParser) -> ast.ValueExpression:
 
 def _parse_cypher_date_function(
     parser: BaseParser,
-) -> ast.DateFunction | CypherTemporalCast:
+) -> ast.DateFunction | ast.CommonValueExpression:
     """Parse Cypher ``date(...)`` — consumes DATE keyword + parens.
 
     Also handles ``CURRENT_DATE`` (gated by GG:TF01).
-    Falls back to CypherTemporalCast for expression arguments like ``date(null)``.
+    Falls back to ``CAST(expr AS DATE)`` for expression arguments like ``date(null)``.
     """
     if parser._match(TokenType.CURRENT_DATE):
         parser._expect(TokenType.CURRENT_DATE)
@@ -1298,21 +1311,21 @@ def _parse_cypher_date_function(
                 date_function_parameters=params,
             ),
         )
-    # Expression fallback: date(null), date(var), date(toString(x))
+    # Expression fallback: date(null), date(var) → CAST(expr AS DATE)
     parser._retreat(saved)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-    return CypherTemporalCast(function_name=TemporalBaseType.DATE, argument=arg)
+    return _cast_as_cve(arg, _TEMPORAL_CAST_TARGETS[TemporalBaseType.DATE](not_null=False))
 
 
 def _parse_cypher_time_function(
     parser: BaseParser,
-) -> ast.TimeFunction | CypherTemporalCast:
+) -> ast.TimeFunction | ast.CommonValueExpression:
     """Parse Cypher ``time(...)`` — consumes TIME keyword + parens.
 
     The base GQL parser expects LEFT_PAREN directly (no TIME token), which
     breaks ``time('10:30:00')`` in Cypher.
-    Falls back to CypherTemporalCast for expression arguments.
+    Falls back to ``CAST(expr AS ZONED TIME)`` for expression arguments.
     """
     if parser._match(TokenType.CURRENT_TIME):
         parser._expect(TokenType.CURRENT_TIME)
@@ -1334,17 +1347,17 @@ def _parse_cypher_time_function(
     parser._retreat(saved)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-    return CypherTemporalCast(function_name=TemporalBaseType.TIME, argument=arg)
+    return _cast_as_cve(arg, _TEMPORAL_CAST_TARGETS[TemporalBaseType.TIME](not_null=False))
 
 
 def _parse_cypher_datetime_function(
     parser: BaseParser,
-) -> ast.DatetimeFunction | CypherTemporalCast:
+) -> ast.DatetimeFunction | ast.CommonValueExpression:
     """Parse Cypher ``datetime(...)`` — consumes DATETIME keyword + parens.
 
     The base GQL parser expects LEFT_PAREN directly (no DATETIME token), which
     breaks ``datetime('2024-01-15T10:30:00')`` in Cypher.
-    Falls back to CypherTemporalCast for expression arguments.
+    Falls back to ``CAST(expr AS ZONED DATETIME)`` for expression arguments.
     """
     if parser._match(TokenType.CURRENT_TIMESTAMP):
         parser._expect(TokenType.CURRENT_TIMESTAMP)
@@ -1368,16 +1381,16 @@ def _parse_cypher_datetime_function(
     parser._retreat(saved)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-    return CypherTemporalCast(function_name=TemporalBaseType.DATETIME, argument=arg)
+    return _cast_as_cve(arg, _TEMPORAL_CAST_TARGETS[TemporalBaseType.DATETIME](not_null=False))
 
 
 def _parse_cypher_localdatetime_function(
     parser: BaseParser,
-) -> ast.LocaldatetimeFunction | CypherTemporalCast:
+) -> ast.LocaldatetimeFunction | ast.CommonValueExpression:
     """Parse Cypher ``localdatetime(...)`` or ``LOCAL_DATETIME(...)`` or ``LOCAL_TIMESTAMP``.
 
     Handles single-word ``localdatetime`` (Cypher) and multi-word ``LOCAL_DATETIME`` (GQL).
-    Falls back to CypherTemporalCast for expression arguments.
+    Falls back to ``CAST(expr AS LOCAL DATETIME)`` for expression arguments.
     """
     if parser._match(TokenType.LOCAL_TIMESTAMP):
         parser._expect(TokenType.LOCAL_TIMESTAMP)
@@ -1402,16 +1415,16 @@ def _parse_cypher_localdatetime_function(
     parser._retreat(saved)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-    return CypherTemporalCast(function_name=TemporalBaseType.LOCALDATETIME, argument=arg)
+    return _cast_as_cve(arg, _TEMPORAL_CAST_TARGETS[TemporalBaseType.LOCALDATETIME](not_null=False))
 
 
 def _parse_cypher_localtime_function(
     parser: BaseParser,
-) -> ast.LocaltimeFunction | CypherTemporalCast:
+) -> ast.LocaltimeFunction | ast.CommonValueExpression:
     """Parse Cypher ``localtime(...)`` or ``LOCAL_TIME(...)``.
 
     Handles single-word ``localtime`` (Cypher) and multi-word ``LOCAL_TIME`` (GQL).
-    Falls back to CypherTemporalCast for expression arguments.
+    Falls back to ``CAST(expr AS LOCAL TIME)`` for expression arguments.
     """
     # LOCAL_TIME covers both "LOCAL_TIME" and "localtime" (Cypher lexer maps both)
     parser._expect(TokenType.LOCAL_TIME)
@@ -1427,7 +1440,7 @@ def _parse_cypher_localtime_function(
     parser._retreat(saved)
     arg = parser.get_parser(ast.ValueExpression)(parser)
     parser._expect(TokenType.RIGHT_PAREN)
-    return CypherTemporalCast(function_name=TemporalBaseType.LOCALTIME, argument=arg)
+    return _cast_as_cve(arg, _TEMPORAL_CAST_TARGETS[TemporalBaseType.LOCALTIME](not_null=False))
 
 
 def _parse_cypher_duration_function(
@@ -1482,8 +1495,14 @@ _TEMPORAL_METHODS: dict[str, CypherTemporalMethod.Method] = {
 }
 
 
-def _parse_cypher_temporal_method(parser: BaseParser) -> CypherTemporalMethod:
-    """Parse ``base.method(args)`` — e.g., ``date.truncate('year', d)``."""
+def _parse_cypher_temporal_method(
+    parser: BaseParser,
+) -> CypherTemporalMethod | ast.DatetimeSubtraction:
+    """Parse ``base.method(args)`` — e.g., ``date.truncate('year', d)``.
+
+    ``duration.between(d1, d2)`` is parsed directly into
+    :class:`DatetimeSubtraction` (GQL ``DURATION_BETWEEN``).
+    """
     # Current token is a temporal keyword; consume it
     base_type: TemporalBaseType | None = None
     for tok_type, bt in _TEMPORAL_BASE_TYPES.items():
@@ -1513,6 +1532,21 @@ def _parse_cypher_temporal_method(parser: BaseParser) -> CypherTemporalMethod:
             arg = parser.get_parser(ast.ValueExpression)(parser)
             arguments.append(arg)
     parser._expect(TokenType.RIGHT_PAREN)
+
+    # duration.between(d1, d2) → DURATION_BETWEEN(d1, d2)
+    if method == CypherTemporalMethod.Method.BETWEEN:
+        if len(arguments) != 2:
+            parser.raise_error(
+                f"duration.between() requires exactly 2 arguments, got {len(arguments)}"
+            )
+        params = ast.DatetimeSubtractionParameters(
+            datetime_value_expression_1=arguments[0],
+            datetime_value_expression_2=arguments[1],
+        )
+        return ast.DatetimeSubtraction(
+            datetime_subtraction_parameters=params,
+            temporal_duration_qualifier=None,
+        )
 
     return CypherTemporalMethod(base_type=base_type, method=method, arguments=arguments)
 
@@ -2317,8 +2351,8 @@ def _generate_cypher_cast_specification(
 ) -> Fragment:
     """Generate Cypher type-conversion syntax from CastSpecification.
 
-    Maps GQL ``CAST(x AS TYPE)`` to Cypher ``toBoolean/toInteger/toFloat/toString(x)``
-    for supported target types, falling back to standard ``CAST(...)`` for others.
+    Maps GQL ``CAST(x AS TYPE)`` to Cypher function syntax for supported target
+    types, falling back to standard ``CAST(...)`` for others.
     """
     target = expr.cast_target
     operand = gen.dispatch(expr.cast_operand)
@@ -2335,6 +2369,11 @@ def _generate_cypher_cast_specification(
         | ast.DecimalExactNumericType,
     ):
         return gen.seq("toInteger(", operand, ")", sep="")
+    # Temporal types: CAST(x AS DATE) → date(x)
+    for base_type, type_cls in _TEMPORAL_CAST_TARGETS.items():
+        if isinstance(target, type_cls):
+            name = base_type.name.lower()
+            return gen.seq(f"{name}(", operand, ")", sep="")
     # Fallback to standard CAST for other types
     return Fragment(f"CAST({operand} AS {gen.dispatch(target)})")
 
@@ -2463,6 +2502,24 @@ def _generate_cypher_temporal_cast(gen: BaseGenerator, expr: CypherTemporalCast)
     return Fragment(f"{name}({arg_str})")
 
 
+def _generate_cypher_datetime_subtraction(
+    gen: BaseGenerator, expr: ast.DatetimeSubtraction
+) -> Fragment:
+    """Generate ``duration.between(d1, d2)`` from DatetimeSubtraction.
+
+    Unqualified DatetimeSubtraction (no temporal_duration_qualifier) maps to
+    Cypher ``duration.between()``. Qualified forms fall back to GQL
+    ``DURATION_BETWEEN(d1, d2) YEAR TO MONTH``.
+    """
+    params = expr.datetime_subtraction_parameters
+    d1 = gen.dispatch(params.datetime_value_expression_1)
+    d2 = gen.dispatch(params.datetime_value_expression_2)
+    if expr.temporal_duration_qualifier is None:
+        return Fragment(f"duration.between({d1}, {d2})")
+    qualifier = gen.dispatch(expr.temporal_duration_qualifier)
+    return gen.seq("DURATION_BETWEEN", gen.parens(gen.seq(d1, ",", d2)), qualifier)
+
+
 def _generate_cypher_temporal_method(gen: BaseGenerator, expr: CypherTemporalMethod) -> Fragment:
     base_names = {
         TemporalBaseType.DATE: "date",
@@ -2474,7 +2531,7 @@ def _generate_cypher_temporal_method(gen: BaseGenerator, expr: CypherTemporalMet
     }
     method_names = {
         CypherTemporalMethod.Method.TRUNCATE: "truncate",
-        CypherTemporalMethod.Method.BETWEEN: "between",
+        # BETWEEN is parsed directly into DatetimeSubtraction (not CypherTemporalMethod)
         CypherTemporalMethod.Method.TRANSACTION: "transaction",
         CypherTemporalMethod.Method.STATEMENT: "statement",
         CypherTemporalMethod.Method.REALTIME: "realtime",
@@ -3488,6 +3545,7 @@ class CypherDialect(Dialect):
             CypherWithStatement: _generate_cypher_with_statement,
             CypherTemporalCast: _generate_cypher_temporal_cast,
             CypherTemporalMethod: _generate_cypher_temporal_method,
+            ast.DatetimeSubtraction: _generate_cypher_datetime_subtraction,
             CypherSetAllFromExprItem: _generate_cypher_set_all_from_expr_item,
             CypherSetMapAppendItem: _generate_cypher_set_map_append_item,
             CypherSetPropertyFromExprItem: _generate_cypher_set_property_from_expr_item,

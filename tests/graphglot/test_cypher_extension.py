@@ -1655,17 +1655,14 @@ class TestCypherTemporalFunctions(unittest.TestCase):
         self.assertEqual(methods[0].method, CypherTemporalMethod.Method.TRUNCATE)
 
     def test_parse_duration_between(self):
-        """duration.between(date('2024-01-01'), date('2024-06-15'))."""
-        from graphglot.ast.cypher import CypherTemporalMethod
-
+        """duration.between(d1, d2) → DatetimeSubtraction (GQL DURATION_BETWEEN)."""
         results = self._parse(
             "RETURN duration.between(date('2024-01-01'), date('2024-06-15')) AS d"
         )
         self.assertEqual(len(results), 1)
-        methods = list(results[0].find_all(CypherTemporalMethod))
-        self.assertEqual(len(methods), 1)
-        self.assertEqual(methods[0].base_type, TemporalBaseType.DURATION)
-        self.assertEqual(methods[0].method, CypherTemporalMethod.Method.BETWEEN)
+        subs = list(results[0].find_all(ast.DatetimeSubtraction))
+        self.assertEqual(len(subs), 1)
+        self.assertIsNone(subs[0].temporal_duration_qualifier)
 
     def test_parse_datetime_realtime(self):
         """datetime.realtime()."""
@@ -1781,6 +1778,29 @@ class TestCypherTemporalFunctions(unittest.TestCase):
             "RETURN duration.between(date('2024-01-01'), date('2024-06-15')) AS d"
         )
         self.assertIn("duration.between(", result)
+
+    def test_temporal_cast_produces_cast_specification(self):
+        """date(other) parses to CastSpecification, not CypherTemporalCast."""
+        from graphglot.ast.cypher import CypherTemporalCast
+
+        results = self._parse("MATCH (n) RETURN date(n.created) AS d")
+        casts = list(results[0].find_all(ast.CastSpecification))
+        self.assertEqual(len(casts), 1)
+        self.assertIsInstance(casts[0].cast_target, ast.DateType)
+        # Must NOT produce the old CypherTemporalCast node
+        old = list(results[0].find_all(CypherTemporalCast))
+        self.assertEqual(old, [])
+
+    def test_temporal_cast_roundtrip(self):
+        """date(expr) roundtrips through CastSpecification back to date(expr)."""
+        for query in [
+            "MATCH (n) RETURN date(n.created) AS d",
+            "MATCH (n) RETURN localtime(n.ts) AS t",
+            "MATCH (n) RETURN datetime(n.ts) AS dt",
+        ]:
+            result = self._round_trip(query)
+            # The Cypher generator should produce the original function syntax
+            self.assertNotIn("CAST(", result, f"Should not contain CAST for: {query}")
 
     def test_round_trip_datetime_realtime(self):
         result = self._round_trip("RETURN datetime.realtime() AS dt")
