@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.6.1 (2026-03-29)
+
+### Bug Fixes
+
+- Avoid stale scope validator cache hits
+  ([`ffb504a`](https://github.com/averdeny/graphglot/commit/ffb504ab7fc739e704f7fac2f1e6c79c15c9bdd9))
+
+- Wrap NotImplementedError from generate() as FeatureError in transpile()
+  ([`3fd608c`](https://github.com/averdeny/graphglot/commit/3fd608cf9b51cb0114dfefda5f8870240fa661f5))
+
+### Refactoring
+
+- Move Cypher expression rewrites from transformations to generators
+  ([`c4ee222`](https://github.com/averdeny/graphglot/commit/c4ee22237655a148253bbb361fd0e1caa8f87558))
+
+### Testing
+
+- Add EXISTS subquery scope test for synthetic nodes from with_to_next
+  ([`ecff51d`](https://github.com/averdeny/graphglot/commit/ecff51d175f8967a8570522bd886977f9362bbc7))
+
+
 ## v0.6.0 (2026-03-28)
 
 ### Bug Fixes
