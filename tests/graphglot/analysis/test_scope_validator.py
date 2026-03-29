@@ -202,6 +202,32 @@ class TestUndefinedVariable(unittest.TestCase):
         result = _analyze("MATCH (a), (b) WITH a AS x RETURN b")
         self.assertIn("undefined-variable", _feature_ids(result))
 
+    def test_scope_cache_ignores_reused_integer_ids(self):
+        """Stale scope-cache entries keyed only by id(expr) must not suppress diagnostics."""
+        from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
+        from graphglot.analysis.rules import scope_validator
+
+        dialect = Neo4j()
+        expr = dialect.transform(dialect.parse("MATCH (a), (b) WITH a AS x RETURN b"))[0]
+        bogus = [
+            SemanticDiagnostic(
+                feature_id="variable-type-conflict",
+                message="bogus",
+                node=expr,
+            )
+        ]
+        scope_validator._scope_walk_cache = (id(expr), bogus)
+        try:
+            diagnostics = scope_validator.check_undefined_variable(
+                AnalysisContext(expression=expr, dialect=dialect, lineage=None)
+            )
+        finally:
+            scope_validator._scope_walk_cache = (None, [])
+        self.assertIn(
+            "undefined-variable",
+            {diagnostic.feature_id for diagnostic in diagnostics},
+        )
+
     def test_with_alias_available_in_return(self):
         """MATCH (n) WITH n.name AS name RETURN name → no diagnostic."""
         result = _analyze("MATCH (n) WITH n.name AS name RETURN name")

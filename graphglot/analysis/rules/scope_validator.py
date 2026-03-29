@@ -756,16 +756,17 @@ def _walk_prs(prs: ast.PrimitiveResultStatement, state: _ScopeState) -> None:
 # ---------------------------------------------------------------------------
 
 # Single-entry cache: all four scope rules operate on the same AST, so we
-# walk once and let each rule filter by feature_id.
-_scope_walk_cache: tuple[int, list[SemanticDiagnostic]] = (0, [])
+# walk once and let each rule filter by feature_id. Cache the expression
+# object itself instead of ``id(expr)`` so stale results cannot be reused
+# when Python recycles integer object ids for a later AST.
+_scope_walk_cache: tuple[ast.Expression | None, list[SemanticDiagnostic]] = (None, [])
 
 
 def _get_scope_diagnostics(expr: ast.Expression) -> list[SemanticDiagnostic]:
     """Return scope diagnostics, caching the walk result by expression identity."""
     global _scope_walk_cache
-    expr_id = id(expr)
-    if _scope_walk_cache[0] != expr_id:
-        _scope_walk_cache = (expr_id, _walk_scope(expr))
+    if _scope_walk_cache[0] is not expr:
+        _scope_walk_cache = (expr, _walk_scope(expr))
     return _scope_walk_cache[1]
 
 
