@@ -670,3 +670,47 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     def test_list_predicate_in_return(self):
         result = self._gql("MATCH (n) RETURN any(x IN [1, 2, 3] WHERE x > 1) AS has_big")
         self.assertIn("EXISTS", result)
+
+    # ------------------------------------------------------------------
+    # Temporal functions: localdatetime
+    # ------------------------------------------------------------------
+
+    def test_localdatetime_no_arg_generates_local_datetime(self):
+        result = self._gql("RETURN localdatetime() AS x")
+        self.assertEqual(result, "RETURN LOCAL DATETIME() AS x")
+
+    def test_localdatetime_with_arg_generates_local_datetime(self):
+        result = self._gql("RETURN localdatetime('2024-01-15T10:30:00') AS x")
+        self.assertEqual(result, "RETURN LOCAL DATETIME('2024-01-15T10:30:00') AS x")
+
+    def test_localdatetime_roundtrip(self):
+        result = self._cypher("RETURN localdatetime() AS x")
+        self.assertEqual(result, "RETURN localdatetime() AS x")
+
+    # ------------------------------------------------------------------
+    # Temporal functions: localtime
+    # ------------------------------------------------------------------
+
+    def test_localtime_no_arg_generates_local_time(self):
+        result = self._gql("RETURN localtime() AS x")
+        self.assertEqual(result, "RETURN LOCAL TIME() AS x")
+
+    def test_localtime_with_arg_generates_local_time(self):
+        result = self._gql("RETURN localtime('10:30:00') AS x")
+        self.assertEqual(result, "RETURN LOCAL TIME('10:30:00') AS x")
+
+    def test_localtime_roundtrip(self):
+        result = self._cypher("RETURN localtime() AS x")
+        self.assertEqual(result, "RETURN localtime() AS x")
+
+    # ------------------------------------------------------------------
+    # Temporal functions: duration
+    # ------------------------------------------------------------------
+
+    def test_duration_generates_duration(self):
+        result = self._gql("RETURN duration('P1Y2M') AS x")
+        self.assertEqual(result, "RETURN DURATION('P1Y2M') AS x")
+
+    def test_duration_roundtrip(self):
+        result = self._cypher("RETURN duration('P1Y2M') AS x")
+        self.assertEqual(result, "RETURN duration('P1Y2M') AS x")

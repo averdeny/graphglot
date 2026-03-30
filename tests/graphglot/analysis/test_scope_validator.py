@@ -36,6 +36,28 @@ def _messages_for(result: AnalysisResult, rule: str) -> list[str]:
     return [d.message for d in result.diagnostics if d.feature_id == rule]
 
 
+def _cached_scope_rule_feature_ids(query: str, rule_fn, stale_feature_id: str) -> set[str]:
+    """Return feature ids after poisoning the scope-rule cache with a reused integer id."""
+    from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
+    from graphglot.analysis.rules import scope_validator
+
+    dialect = Neo4j()
+    expr = dialect.transform(dialect.parse(query))[0]
+    bogus = [
+        SemanticDiagnostic(
+            feature_id=stale_feature_id,
+            message="bogus",
+            node=expr,
+        )
+    ]
+    scope_validator._scope_walk_cache = (id(expr), bogus)
+    try:
+        diagnostics = rule_fn(AnalysisContext(expression=expr, dialect=dialect, lineage=None))
+    finally:
+        scope_validator._scope_walk_cache = (None, [])
+    return {diagnostic.feature_id for diagnostic in diagnostics}
+
+
 # ===========================================================================
 # variable-type-conflict — Cross-clause node/edge type mismatch
 # ===========================================================================
@@ -80,6 +102,17 @@ class TestVariableTypeConflict(unittest.TestCase):
         """WITH boundary preserves type tracking → diagnostic."""
         result = _analyze("MATCH (r) WITH r AS r MATCH ()-[r]->() RETURN r")
         self.assertIn("variable-type-conflict", _feature_ids(result))
+
+    def test_scope_cache_ignores_reused_integer_ids(self):
+        """A stale integer-id cache entry must not suppress type-conflict diagnostics."""
+        from graphglot.analysis.rules.scope_validator import check_variable_type_conflict
+
+        ids = _cached_scope_rule_feature_ids(
+            "MATCH (r) MATCH ()-[r]->() RETURN r",
+            check_variable_type_conflict,
+            stale_feature_id="undefined-variable",
+        )
+        self.assertIn("variable-type-conflict", ids)
 
 
 # ===========================================================================
@@ -203,30 +236,15 @@ class TestUndefinedVariable(unittest.TestCase):
         self.assertIn("undefined-variable", _feature_ids(result))
 
     def test_scope_cache_ignores_reused_integer_ids(self):
-        """Stale scope-cache entries keyed only by id(expr) must not suppress diagnostics."""
-        from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
-        from graphglot.analysis.rules import scope_validator
+        """A stale integer-id cache entry must not suppress undefined-variable diagnostics."""
+        from graphglot.analysis.rules.scope_validator import check_undefined_variable
 
-        dialect = Neo4j()
-        expr = dialect.transform(dialect.parse("MATCH (a), (b) WITH a AS x RETURN b"))[0]
-        bogus = [
-            SemanticDiagnostic(
-                feature_id="variable-type-conflict",
-                message="bogus",
-                node=expr,
-            )
-        ]
-        scope_validator._scope_walk_cache = (id(expr), bogus)
-        try:
-            diagnostics = scope_validator.check_undefined_variable(
-                AnalysisContext(expression=expr, dialect=dialect, lineage=None)
-            )
-        finally:
-            scope_validator._scope_walk_cache = (None, [])
-        self.assertIn(
-            "undefined-variable",
-            {diagnostic.feature_id for diagnostic in diagnostics},
+        ids = _cached_scope_rule_feature_ids(
+            "MATCH (a), (b) WITH a AS x RETURN b",
+            check_undefined_variable,
+            stale_feature_id="variable-type-conflict",
         )
+        self.assertIn("undefined-variable", ids)
 
     def test_with_alias_available_in_return(self):
         """MATCH (n) WITH n.name AS name RETURN name → no diagnostic."""

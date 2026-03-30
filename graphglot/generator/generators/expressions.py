@@ -823,6 +823,30 @@ def generate_datetime_function(gen: Generator, expr: ast.DatetimeFunction) -> Fr
     return Fragment("ZONED_DATETIME()")
 
 
+@generates(ast.LocaldatetimeFunction)
+def generate_localdatetime_function(gen: Generator, expr: ast.LocaldatetimeFunction) -> Fragment:
+    if isinstance(expr.localdatetime_function, ast.LocaldatetimeFunction._LocalTimestamp):
+        return Fragment("LOCAL_TIMESTAMP")
+    inner = expr.localdatetime_function
+    if inner.datetime_function_parameters:
+        return Fragment(f"LOCAL DATETIME({gen.dispatch(inner.datetime_function_parameters)})")
+    return Fragment("LOCAL DATETIME()")
+
+
+@generates(ast.LocaltimeFunction)
+def generate_localtime_function(gen: Generator, expr: ast.LocaltimeFunction) -> Fragment:
+    if expr.time_function_parameters:
+        return Fragment(f"LOCAL TIME({gen.dispatch(expr.time_function_parameters)})")
+    return Fragment("LOCAL TIME()")
+
+
+@generates(ast.DurationFunction)
+def generate_duration_function(gen: Generator, expr: ast.DurationFunction) -> Fragment:
+    if expr.duration_function_parameters:
+        return Fragment(f"DURATION({gen.dispatch(expr.duration_function_parameters)})")
+    return Fragment("DURATION()")
+
+
 @generates(ast.TemporalDurationQualifier)
 def generate_temporal_duration_qualifier(
     gen: Generator, expr: ast.TemporalDurationQualifier
