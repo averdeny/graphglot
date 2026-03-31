@@ -2075,16 +2075,14 @@ def _generate_list_predicate_function(gen: BaseGenerator, expr: ListPredicateFun
         ListPredicateFunction.Kind.NONE: "none",
         ListPredicateFunction.Kind.SINGLE: "single",
     }[expr.kind]
-    return gen.seq(
-        kw,
-        "(",
+    inner = gen.seq(
         gen.dispatch(expr.variable),
         "IN",
         gen.dispatch(expr.source),
         "WHERE",
         gen.dispatch(expr.predicate),
-        ")",
     )
+    return Fragment(f"{kw}({inner})")
 
 
 def _generate_query_prefix(gen: BaseGenerator, expr: QueryPrefix) -> Fragment:

@@ -665,11 +665,33 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     def test_list_predicate_roundtrip_preserves_syntax(self):
         for kw in ["any", "none", "all", "single"]:
             result = self._cypher(f"MATCH (n) WHERE {kw}(x IN n.tags WHERE x = 'a') RETURN n")
-            self.assertIn(f"{kw} (", result, f"{kw} should preserve Cypher syntax")
+            self.assertIn(f"{kw}(", result, f"{kw} should preserve Cypher syntax")
 
     def test_list_predicate_in_return(self):
         result = self._gql("MATCH (n) RETURN any(x IN [1, 2, 3] WHERE x > 1) AS has_big")
         self.assertIn("EXISTS", result)
+
+    # ------------------------------------------------------------------
+    # Predicate comparison
+    # ------------------------------------------------------------------
+
+    def test_predicate_comparison_generates(self):
+        """none(...) = true → (NOT EXISTS {...}) = TRUE."""
+        result = self._gql("RETURN none(x IN [1] WHERE x = 1) = true AS r")
+        self.assertEqual(
+            result,
+            "RETURN (NOT EXISTS {FOR x IN [1] FILTER WHERE x = 1 RETURN x}) = TRUE AS r",
+        )
+
+    def test_null_predicate_comparison_generates(self):
+        """false = true IS NULL → FALSE = TRUE IS NULL."""
+        result = self._gql("RETURN false = true IS NULL AS r")
+        self.assertEqual(result, "RETURN FALSE = TRUE IS NULL AS r")
+
+    def test_predicate_comparison_roundtrip(self):
+        """Cypher roundtrip preserves syntax."""
+        result = self._cypher("RETURN none(x IN [1] WHERE x = 1) = true AS r")
+        self.assertEqual(result, "RETURN none(x IN [1] WHERE x = 1) = TRUE AS r")
 
     # ------------------------------------------------------------------
     # Temporal functions: localdatetime

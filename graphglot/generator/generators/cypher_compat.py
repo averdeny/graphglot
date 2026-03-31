@@ -17,9 +17,11 @@ from graphglot.ast.cypher import (
     CreateClause,
     CypherChainedComparison,
     CypherPatternPredicate,
+    CypherPredicateComparison,
     ListPredicateFunction,
     StringMatchPredicate,
 )
+from graphglot.ast.expressions import ComparisonPredicatePart2
 from graphglot.generator.fragment import Fragment, parens, seq
 from graphglot.generator.registry import generates
 
@@ -97,6 +99,22 @@ def generate_list_predicate(gen: Generator, expr: ListPredicateFunction) -> Frag
 
     # none, all → (NOT EXISTS { ... })
     return parens(seq("NOT", exists))
+
+
+_COMP_OP_STR = {
+    ComparisonPredicatePart2.CompOp.EQUALS: "=",
+    ComparisonPredicatePart2.CompOp.NOT_EQUALS: "<>",
+    ComparisonPredicatePart2.CompOp.LESS_THAN: "<",
+    ComparisonPredicatePart2.CompOp.GREATER_THAN: ">",
+    ComparisonPredicatePart2.CompOp.LESS_THAN_OR_EQUALS: "<=",
+    ComparisonPredicatePart2.CompOp.GREATER_THAN_OR_EQUALS: ">=",
+}
+
+
+@generates(CypherPredicateComparison)
+def generate_predicate_comparison(gen: Generator, expr: CypherPredicateComparison) -> Fragment:
+    """``none(...) = true`` → ``(NOT EXISTS {...}) = true``."""
+    return gen.seq(gen.dispatch(expr.left), _COMP_OP_STR[expr.op], gen.dispatch(expr.right))
 
 
 @generates(CreateClause)
