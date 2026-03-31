@@ -3,6 +3,7 @@ from __future__ import annotations
 import typing as t
 
 from graphglot import ast
+from graphglot.ast.expressions import DifferentEdgesMatchMode
 from graphglot.lexer import TokenType
 from graphglot.parser.registry import parses
 
@@ -23,6 +24,10 @@ def parse_graph_pattern(parser: Parser) -> ast.GraphPattern:
         parser.opt(parser.get_parser(ast.KeepClause)),
         parser.opt(parser.get_parser(ast.GraphPatternWhereClause)),
     )
+    if match_mode is None:
+        # Implicit default — bypass require_feature(G002) so dialects that
+        # don't list G002 as supported still work.
+        match_mode = DifferentEdgesMatchMode._construct(mode=DifferentEdgesMatchMode.Mode.EDGES)
     return ast.GraphPattern(
         match_mode=match_mode,
         path_pattern_list=path_pattern_list,

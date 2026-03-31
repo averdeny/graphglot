@@ -9,6 +9,7 @@ import typing as t
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from graphglot.ast.expressions import DifferentEdgesMatchMode
 from graphglot.features import ALL_FEATURES, Feature, get_feature
 from graphglot.generator import Generator as BaseGenerator
 from graphglot.lexer import Lexer as BaseLexer, TokenType
@@ -200,6 +201,15 @@ class Dialect(metaclass=_Dialect):
 
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = ALL_FEATURES
     """GQL features supported by the dialect (core + optional)."""
+
+    DEFAULT_MATCH_MODE: t.ClassVar[type] = DifferentEdgesMatchMode
+    """Implementation-defined default match mode (ISO/IEC 39075 ID086).
+
+    When the parsed AST carries a match mode whose type matches the write
+    dialect's default, the generator omits it (it is implicit).  When they
+    differ, the generator emits it explicitly — and if the target dialect
+    does not support the required feature the transpilation fails.
+    """
 
     TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
     """Ordered list of AST transformations to apply when normalizing parsed trees."""

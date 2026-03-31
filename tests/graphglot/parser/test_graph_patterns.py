@@ -20,11 +20,12 @@ class TestGraphPatterns(unittest.TestCase):
         expr = self.helper.parse_single(query, ast.GraphPatternBindingTable)
 
         leaves = expr.leaf_list()
-        self.assertEqual(len(leaves), 2)
-        self.assertIsInstance(leaves[0], ast.BindingVariable)
-        self.assertEqual(leaves[0].name, "n")
-        self.assertIsInstance(leaves[1], ast.Identifier)
-        self.assertEqual(leaves[1].name, "Person")
+        self.assertEqual(len(leaves), 3)
+        self.assertIsInstance(leaves[0], ast.DifferentEdgesMatchMode)
+        self.assertIsInstance(leaves[1], ast.BindingVariable)
+        self.assertEqual(leaves[1].name, "n")
+        self.assertIsInstance(leaves[2], ast.Identifier)
+        self.assertEqual(leaves[2].name, "Person")
 
     def test_is_colon_equivalence(self):
         """Test that IS and colon syntax are equivalent."""
@@ -90,7 +91,7 @@ class TestGraphPatterns(unittest.TestCase):
         expr = self.helper.parse_single(query, ast.GraphPatternBindingTable)
 
         leaves = expr.leaf_list()
-        self.assertEqual(len(leaves), 3)
+        self.assertEqual(len(leaves), 4)
 
     def test_node_with_where_clause(self):
         """Test that the parser can parse a node with a where clause."""

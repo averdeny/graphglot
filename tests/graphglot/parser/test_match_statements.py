@@ -20,11 +20,12 @@ class TestMatchStatements(unittest.TestCase):
         expr = self.helper.parse_single(query, ast.SimpleLinearQueryStatement)
 
         leaves = expr.leaf_list()
-        self.assertEqual(len(leaves), 2)
-        self.assertIsInstance(leaves[0], ast.BindingVariable)
-        self.assertEqual(leaves[0].name, "n")
-        self.assertIsInstance(leaves[1], ast.Identifier)
-        self.assertEqual(leaves[1].name, "Person")
+        self.assertEqual(len(leaves), 3)
+        self.assertIsInstance(leaves[0], ast.DifferentEdgesMatchMode)
+        self.assertIsInstance(leaves[1], ast.BindingVariable)
+        self.assertEqual(leaves[1].name, "n")
+        self.assertIsInstance(leaves[2], ast.Identifier)
+        self.assertEqual(leaves[2].name, "Person")
 
     def test_match_statement_pattern(self):
         """Test that the parser can parse a match statement with pattern."""
