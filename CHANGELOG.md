@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.8.1 (2026-03-31)
+
+### Bug Fixes
+
+- Resolve WITH...WHERE scope loss in with_to_next transformation
+  ([`4624c23`](https://github.com/averdeny/graphglot/commit/4624c23d9988c0d3ee8b6d4d7b16b00093ef7484))
+
+
 ## v0.8.0 (2026-03-31)
 
 ### Features
