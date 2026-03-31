@@ -251,10 +251,14 @@ class TestUndefinedVariable(unittest.TestCase):
         result = _analyze("MATCH (n) WITH n.name AS name RETURN name")
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
-    def test_undefined_in_where_after_with(self):
-        """MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name → diagnostic."""
+    def test_prefilter_where_after_with_no_diagnostic(self):
+        """MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name → no diagnostic.
+
+        The with_to_next pre-filter strategy moves the filter before the
+        RETURN, so ``a`` is still in scope when the filter runs.
+        """
         result = _analyze("MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name")
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_match_after_with_uses_projected_scope(self):
         """MATCH (a) WITH a AS x MATCH (x)-[r]->(b) RETURN b → no diagnostic."""
@@ -365,10 +369,14 @@ class TestNextScopePropagation(unittest.TestCase):
         result = _analyze("MATCH (r) WITH r AS r MATCH ()-[r]->() RETURN r")
         self.assertIn("variable-type-conflict", _feature_ids(result))
 
-    def test_next_filter_undefined(self):
-        """MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name → diagnostic."""
+    def test_next_filter_prefilter_no_diagnostic(self):
+        """MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name → no diagnostic.
+
+        The with_to_next transformation moves the filter before the RETURN
+        (pre-filter strategy), so ``a`` is still in scope when the filter runs.
+        """
         result = _analyze("MATCH (a) WITH a.name AS name WHERE a.age > 25 RETURN name")
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_multi_next_chain(self):
         """MATCH (a),(b) WITH a WITH a.name AS n RETURN n, b → b undefined in final block."""
@@ -2063,10 +2071,14 @@ class TestComplexScopeChains(unittest.TestCase):
         result = _analyze("MATCH (a) WITH a WHERE a.age > 10 RETURN a")
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
-    def test_with_hides_in_where(self):
-        """MATCH (a), (b) WITH a WHERE b.age > 10 RETURN a → undefined (b hidden)."""
+    def test_with_where_prefilter_keeps_scope(self):
+        """MATCH (a), (b) WITH a WHERE b.age > 10 RETURN a → no diagnostic.
+
+        The with_to_next pre-filter strategy moves the filter before the RETURN,
+        so ``b`` is still in scope when the filter runs.
+        """
         result = _analyze("MATCH (a), (b) WITH a WHERE b.age > 10 RETURN a")
-        self.assertIn("undefined-variable", _feature_ids(result))
+        self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_triple_with_chain(self):
         """MATCH (a) WITH a WITH a.name AS name WITH name RETURN name → no diagnostic."""
@@ -2249,8 +2261,12 @@ class TestDiagnosticLineCol(unittest.TestCase):
             self.assertIsNotNone(d.line)
             self.assertIsNotNone(d.col)
 
-    def test_undefined_in_where_after_with_has_position(self):
-        """Diagnostic for undefined var in WITH...WHERE points to the variable, not None."""
+    def test_prefilter_where_after_with_no_diagnostic(self):
+        """WITH...WHERE referencing non-projected var → no diagnostic after fix.
+
+        The with_to_next pre-filter strategy moves the filter before the
+        RETURN, so ``prod`` is still in scope when the filter runs.
+        """
         query = (
             "MATCH (n)-[r]->(prod)\n"
             "OPTIONAL MATCH (prod)-[r2]->(c)\n"
@@ -2260,15 +2276,7 @@ class TestDiagnosticLineCol(unittest.TestCase):
         )
         result = _analyze(query)
         diags = [d for d in result.diagnostics if d.feature_id == "undefined-variable"]
-        self.assertTrue(len(diags) >= 1, "expected at least one undefined-variable diagnostic")
-        prod_diag = [d for d in diags if "prod" in d.message]
-        self.assertTrue(len(prod_diag) >= 1, "expected diagnostic for 'prod'")
-        d = prod_diag[0]
-        self.assertIsNotNone(d.line, "diagnostic line should not be None")
-        self.assertIsNotNone(d.col, "diagnostic col should not be None")
-        # The diagnostic should point to line 4 col 10 where `prod` appears in WHERE
-        self.assertEqual(d.line, 4, "diagnostic should point to line 4 (WHERE clause)")
-        self.assertEqual(d.col, 10, "diagnostic should point to col 10 ('prod' in WHERE)")
+        self.assertEqual(len(diags), 0, "pre-filter should eliminate scope loss")
 
     def test_undefined_in_return_points_to_variable(self):
         """Diagnostic for undefined var in RETURN points to the specific variable."""

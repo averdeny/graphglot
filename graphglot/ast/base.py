@@ -251,6 +251,7 @@ class Expression:
                 field = field_constraints.get(name)
                 if field is not None and field.default_factory is not None:
                     obj.__dict__[name] = field.default_factory()
+            obj._set_parent(name, obj.__dict__.get(name))
         return obj
 
     @property

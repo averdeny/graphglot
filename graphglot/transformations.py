@@ -97,24 +97,48 @@ def _rewrite_alqs(
     for stmt in stmts:
         if isinstance(stmt, CypherWithStatement):
             segments.append(current_segment)
-            withs.append(stmt)
-            # If the WITH owns a WHERE clause, prepend a FilterStatement
-            # to the next segment so it appears after the NEXT keyword.
-            if stmt.where_clause is not None:
-                fs = ast.FilterStatement._construct(
-                    filter_statement=stmt.where_clause,
-                )
-                # Propagate span tokens from the WhereClause so that
-                # diagnostics on the synthetic FilterStatement can report
-                # line/col instead of None.
-                wc = stmt.where_clause
-                if getattr(wc, "_start_token", None) is not None:
-                    fs.__dict__["_start_token"] = wc._start_token
-                if getattr(wc, "_end_token", None) is not None:
-                    fs.__dict__["_end_token"] = wc._end_token
-                current_segment = [fs]
-            else:
+
+            if stmt.where_clause is None:
+                withs.append(stmt)
                 current_segment = []
+                continue
+
+            projected, alias_map = _analyze_projection(stmt)
+            losing = (
+                set()
+                if projected is None
+                else {
+                    n.binding_variable.name
+                    for n in stmt.where_clause.dfs()
+                    if isinstance(n, ast.BindingVariableReference)
+                    and n.binding_variable.name not in projected
+                }
+            )
+
+            if not losing:
+                # No scope loss — filter after NEXT with raw WHERE
+                withs.append(_strip_where(stmt))
+                current_segment = [_make_filter_stmt(stmt.where_clause)]
+
+            else:
+                # Scope loss — inline aliases so the condition only uses
+                # pre-WITH binding variables, then decide placement.
+                inlined_where = _inline_aliases(stmt.where_clause, alias_map)
+                has_obsl = stmt.order_by_and_page_statement is not None
+
+                if not has_obsl:
+                    # Pre-filter: move filter before the RETURN
+                    segments[-1].append(_make_filter_stmt(inlined_where))
+                    withs.append(_strip_where(stmt))
+                    current_segment = []
+
+                else:
+                    # Carry-through: widen projection with extra vars, filter
+                    # after NEXT, narrow back to original projection.
+                    withs.append(_widen_projection(stmt, losing))
+                    segments.append([_make_filter_stmt(inlined_where)])
+                    withs.append(_narrow_projection(stmt))
+                    current_segment = []
         else:
             current_segment.append(stmt)
 
@@ -149,6 +173,155 @@ def _rewrite_alqs(
     return ast.StatementBlock._construct(
         statement=root_cqe,
         list_next_statement=next_statements,
+    )
+
+
+# ===========================================================================
+# WITH...WHERE scope-loss helpers
+# ===========================================================================
+
+
+def _make_filter_stmt(where: ast.WhereClause) -> ast.FilterStatement:
+    """Build a FilterStatement from a WhereClause, preserving span tokens."""
+    fs = ast.FilterStatement._construct(filter_statement=where)
+    if getattr(where, "_start_token", None) is not None:
+        fs.__dict__["_start_token"] = where._start_token
+    if getattr(where, "_end_token", None) is not None:
+        fs.__dict__["_end_token"] = where._end_token
+    return fs
+
+
+def _analyze_projection(
+    stmt: CypherWithStatement,
+) -> tuple[set[str] | None, dict[str, Expression]]:
+    """Projected names and alias→source map.
+
+    Returns ``(None, {})`` for star projections (all names pass through).
+    """
+    inner = stmt.return_statement_body.return_statement_body
+    if not hasattr(inner, "return_item_list") or inner.return_item_list is None:
+        return None, {}
+    names: set[str] = set()
+    alias_map: dict[str, Expression] = {}
+    for item in inner.return_item_list.list_return_item:
+        if item.return_item_alias is not None:
+            name = item.return_item_alias.identifier.name
+            names.add(name)
+            alias_map[name] = item.aggregating_value_expression
+        else:
+            for sub in item.aggregating_value_expression.dfs():
+                if isinstance(sub, ast.BindingVariableReference):
+                    names.add(sub.binding_variable.name)
+                    break
+    return names, alias_map
+
+
+def _inline_aliases(
+    where: ast.WhereClause,
+    alias_map: dict[str, Expression],
+) -> ast.WhereClause:
+    """Replace alias references in *where* with their source expressions."""
+    if not alias_map:
+        return where
+    where_copy: ast.WhereClause = t.cast(ast.WhereClause, where.deep_copy())
+    for node in list(where_copy.dfs()):
+        if not isinstance(node, ast.BindingVariableReference):
+            continue
+        name = node.binding_variable.name
+        if name in alias_map:
+            replacement = alias_map[name].deep_copy()
+            _replace_in_parent(node, replacement)
+    return where_copy
+
+
+def _strip_where(stmt: CypherWithStatement) -> CypherWithStatement:
+    """Return a copy of *stmt* with where_clause removed."""
+    return CypherWithStatement._construct(
+        return_statement_body=stmt.return_statement_body,
+        order_by_and_page_statement=stmt.order_by_and_page_statement,
+        where_clause=None,
+    )
+
+
+def _wrap_var_as_ave(name: str) -> ast.ArithmeticValueExpression:
+    """Wrap a variable name in the ArithmeticValueExpression chain the parser produces."""
+    bvr = ast.BindingVariableReference._construct(
+        binding_variable=ast.Identifier._construct(name=name),
+    )
+    af = ast.ArithmeticFactor._construct(arithmetic_primary=bvr)
+    at = ast.ArithmeticTerm._construct(base=af, steps=None)
+    return ast.ArithmeticValueExpression._construct(base=at, steps=None)
+
+
+def _widen_projection(
+    stmt: CypherWithStatement,
+    extra_vars: set[str],
+) -> CypherWithStatement:
+    """Add extra variables to the projection.  Keeps OBSL, drops WHERE."""
+    inner = stmt.return_statement_body.return_statement_body
+    inner_cls = ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause
+    if not isinstance(
+        inner, inner_cls
+    ):  # pragma: no cover - guaranteed: scope loss requires non-star
+        return _strip_where(stmt)
+    items = list(inner.return_item_list.list_return_item)
+    for var_name in sorted(extra_vars):
+        items.append(
+            ast.ReturnItem._construct(
+                aggregating_value_expression=_wrap_var_as_ave(var_name),
+                return_item_alias=None,
+            )
+        )
+    new_ril = ast.ReturnItemList._construct(list_return_item=items)
+    new_inner = inner_cls._construct(
+        set_quantifier=inner.set_quantifier,
+        return_item_list=new_ril,
+        group_by_clause=inner.group_by_clause,
+    )
+    new_body = ast.ReturnStatementBody._construct(
+        return_statement_body=new_inner,
+    )
+    return CypherWithStatement._construct(
+        return_statement_body=new_body,
+        order_by_and_page_statement=stmt.order_by_and_page_statement,
+        where_clause=None,
+    )
+
+
+def _narrow_projection(stmt: CypherWithStatement) -> CypherWithStatement:
+    """Build a RETURN that re-projects just the original names (by reference).
+
+    After the widened RETURN + NEXT, only projected names + extra vars are
+    in scope.  The narrowing RETURN references each original projected name
+    as a bare variable (not the source expression) so it works in post-NEXT
+    scope, then drops the extra vars.
+    """
+    projected, _ = _analyze_projection(stmt)
+    if projected is None:
+        # Star projection — just pass through
+        return CypherWithStatement._construct(
+            return_statement_body=stmt.return_statement_body,
+            order_by_and_page_statement=None,
+            where_clause=None,
+        )
+    items = [
+        ast.ReturnItem._construct(
+            aggregating_value_expression=_wrap_var_as_ave(name),
+            return_item_alias=None,
+        )
+        for name in sorted(projected)
+    ]
+    inner_cls = ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause
+    new_inner = inner_cls._construct(
+        set_quantifier=None,
+        return_item_list=ast.ReturnItemList._construct(list_return_item=items),
+        group_by_clause=None,
+    )
+    new_body = ast.ReturnStatementBody._construct(return_statement_body=new_inner)
+    return CypherWithStatement._construct(
+        return_statement_body=new_body,
+        order_by_and_page_statement=None,
+        where_clause=None,
     )
 
 

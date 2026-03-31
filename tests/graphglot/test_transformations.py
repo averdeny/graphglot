@@ -237,6 +237,132 @@ class TestWithToNext(unittest.TestCase):
             self.assertEqual(base.generate(orig), base.generate(trans))
 
 
+class TestWithToNextScopeLoss(unittest.TestCase):
+    """Test WITH...WHERE scope-loss fix in with_to_next.
+
+    Cypher's WITH...WHERE gives the WHERE a merged scope — it can
+    reference both pre-WITH binding variables and projected aliases.
+    The transformation must place the filter correctly to avoid
+    scope loss at GQL NEXT boundaries.
+    """
+
+    def setUp(self):
+        self.neo4j = Neo4j()
+        self.gql = Dialect.get_or_raise("fullgql")
+        from graphglot.analysis import SemanticAnalyzer
+
+        self.analyzer = SemanticAnalyzer()
+
+    def _transform_gql(self, query: str) -> str:
+        """Parse Cypher → transform → generate GQL."""
+        trees = self.neo4j.parse(query)
+        transformed = self.neo4j.transform(trees)
+        return self.gql.generate(transformed[0])
+
+    def _assert_zero_diagnostics(self, query: str):
+        """Assert the transformed tree has no scope diagnostics."""
+        trees = self.neo4j.parse(query)
+        transformed = self.neo4j.transform(trees)
+        result = self.analyzer.analyze(transformed[0], self.neo4j)
+        self.assertEqual(
+            result.diagnostics,
+            [],
+            f"Expected zero diagnostics for: {query!r}\n"
+            f"Got: {[str(d) for d in result.diagnostics]}",
+        )
+
+    # ------------------------------------------------------------------
+    # Pre-filter: unbound variable (scope loss, no OBSL)
+    # ------------------------------------------------------------------
+    def test_prefilter_unbound_var(self):
+        """WITH b WHERE r IS NULL → FILTER WHERE r IS NULL RETURN b."""
+        q = "MATCH (a)-[r]->(b) WITH b WHERE r IS NULL RETURN b"
+        gql = self._transform_gql(q)
+        self.assertIn("FILTER WHERE", gql)
+        # Filter must come BEFORE the first RETURN (not after NEXT)
+        filter_pos = gql.index("FILTER WHERE")
+        first_return = gql.index("RETURN")
+        self.assertLess(filter_pos, first_return)
+        self._assert_zero_diagnostics(q)
+
+    def test_prefilter_unbound_node_var(self):
+        """WITH other WHERE a IS NULL — node var not projected."""
+        q = (
+            "MATCH (other:B) OPTIONAL MATCH (a)-[r]->(other) "
+            "WITH other WHERE a IS NULL RETURN other"
+        )
+        self._assert_zero_diagnostics(q)
+
+    # ------------------------------------------------------------------
+    # Pre-filter: alias inlining
+    # ------------------------------------------------------------------
+    def test_alias_only_no_scope_loss(self):
+        """WITH a.name2 AS name WHERE name = 'B' — alias survives NEXT, no inlining."""
+        q = "MATCH (a) WITH a.name2 AS name WHERE name = 'B' RETURN *"
+        gql = self._transform_gql(q)
+        # name is a projected alias — it survives NEXT, so filter stays after NEXT
+        self.assertIn("NEXT", gql)
+        self.assertIn("FILTER WHERE name", gql)
+        self._assert_zero_diagnostics(q)
+
+    def test_prefilter_mixed_alias_and_var(self):
+        """WHERE name = 'B' OR a.name2 = 'C' — alias inlined, pre-WITH var kept."""
+        q = "MATCH (a) WITH a.name2 AS name WHERE name = 'B' OR a.name2 = 'C' RETURN *"
+        self._assert_zero_diagnostics(q)
+
+    # ------------------------------------------------------------------
+    # No scope loss: filter stays after NEXT
+    # ------------------------------------------------------------------
+    def test_no_scope_loss_filter_after_next(self):
+        """WITH n WHERE n.age > 25 — n is projected, no scope loss."""
+        q = "MATCH (n) WITH n WHERE n.age > 25 RETURN n"
+        gql = self._transform_gql(q)
+        next_pos = gql.index("NEXT")
+        filter_pos = gql.index("FILTER WHERE")
+        self.assertGreater(filter_pos, next_pos)
+        self._assert_zero_diagnostics(q)
+
+    def test_no_scope_loss_aggregation(self):
+        """WITH a, count(*) AS cnt WHERE cnt > 1 — aggregation, alias survives."""
+        q = "MATCH (a)-->()\nWITH a, count(*) AS relCount\nWHERE relCount > 1\nRETURN a"
+        gql = self._transform_gql(q)
+        # count(*) should NOT be inlined into the filter
+        self.assertNotIn("COUNT(*) > 1", gql)
+        self._assert_zero_diagnostics(q)
+
+    # ------------------------------------------------------------------
+    # Star projection
+    # ------------------------------------------------------------------
+    def test_star_projection_no_scope_loss(self):
+        """WITH * WHERE a.age > 25 — star means all vars pass through."""
+        q = "MATCH (a) WITH * WHERE a.age > 25 RETURN a"
+        self._assert_zero_diagnostics(q)
+
+    # ------------------------------------------------------------------
+    # Carry-through: ORDER BY + LIMIT + scope loss
+    # ------------------------------------------------------------------
+    def test_carry_through_obsl(self):
+        """WITH src ORDER BY r.weight LIMIT 2 WHERE r.weight < 0.8 — carry r."""
+        q = (
+            "MATCH (a)-[r:KNOWS]->(b) "
+            "WITH a.name AS src ORDER BY r.weight DESC LIMIT 2 "
+            "WHERE r.weight < 0.8 "
+            "RETURN src"
+        )
+        gql = self._transform_gql(q)
+        # The widened projection should include r
+        self.assertIn(", r", gql)
+        self._assert_zero_diagnostics(q)
+
+    # ------------------------------------------------------------------
+    # Chained WITH...WHERE
+    # ------------------------------------------------------------------
+    def test_chained_with_where(self):
+        """Two WITH...WHERE in sequence — both handled correctly."""
+        q = "MATCH (a)-[r]->(b) WITH a, b WHERE a.name IS NOT NULL WITH b WHERE b.age > 25 RETURN b"
+        self._assert_zero_diagnostics(q)
+
+
 class TestCypherWithOwnsWhere(unittest.TestCase):
     """CypherWithStatement should own its WHERE clause directly.
 

@@ -1,7 +1,7 @@
 """TCK round-trip + scope validation tests.
 
 Verify parse -> generate -> re-parse produces equivalent ASTs, and that
-the scope validator does not crash on any parseable query.
+the scope validator produces zero diagnostics on the transformed tree.
 
 Tests positive + runtime-error scenarios (3279 total).
 """
@@ -59,7 +59,7 @@ def test_tck_roundtrip(scenario: TckScenario):
         pytest.skip("Parse returned empty results")
         return
 
-    # Scope validation: transform + analyze must not crash.
+    # Scope validation: transform + analyze must produce no diagnostics.
     if scenario.test_id not in _SKIP_SCOPE_IDS:
         try:
             transformed = _neo4j.transform(results)
@@ -67,7 +67,12 @@ def test_tck_roundtrip(scenario: TckScenario):
             pass  # Transform failure — not a scope issue
         else:
             if transformed:
-                _analyzer.analyze(transformed[0], _neo4j)
+                scope_result = _analyzer.analyze(transformed[0], _neo4j)
+                if scope_result.diagnostics:
+                    msgs = "; ".join(str(d) for d in scope_result.diagnostics)
+                    pytest.fail(
+                        f"Scope diagnostics on transformed tree:\n{msgs}\nQuery: {scenario.query!r}"
+                    )
 
     try:
         generated = _neo4j.generate(results[0])
