@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v0.8.0 (2026-03-31)
+
+### Features
+
+- Add CypherPredicateComparison base generator and fix list predicate formatting
+  ([`35d36e1`](https://github.com/averdeny/graphglot/commit/35d36e1d63133bf22974b3bb7430f642e20e5a6c))
+
+- Add GQL generator for Cypher CreateClause → INSERT
+  ([`3495c4e`](https://github.com/averdeny/graphglot/commit/3495c4e4ae178184381cf1e86f5324b450305b4d))
+
+
 ## v0.7.0 (2026-03-31)
 
 ### Features
