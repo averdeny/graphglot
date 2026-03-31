@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v0.7.0 (2026-03-31)
+
+### Features
+
+- Add base generators for LocaldatetimeFunction, LocaltimeFunction, DurationFunction
+  ([`a2e1eb7`](https://github.com/averdeny/graphglot/commit/a2e1eb7c62fb8f6d83d308a3229fa738377f73c4))
+
+- Inject implicit DIFFERENT EDGES default match mode
+  ([`708eff2`](https://github.com/averdeny/graphglot/commit/708eff22b0e043aa2262afa9757a2cbd7f8c3a7b))
+
+
 ## v0.6.1 (2026-03-29)
 
 ### Bug Fixes
