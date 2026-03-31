@@ -1,7 +1,8 @@
 """GQL generators for Cypher-specific AST nodes.
 
-These provide GQL-compatible output for Cypher nodes that have no direct GQL
-syntax equivalent.  Every dialect inherits these via DEFAULT_GENERATORS, so
+These provide GQL-compatible output for Cypher-specific AST nodes.  Some are
+direct keyword mappings (CREATE → INSERT), others are structural rewrites
+(STARTS WITH → LEFT).  Every dialect inherits these via DEFAULT_GENERATORS, so
 cross-dialect transpilation (e.g. Neo4j → FullGQL) works automatically.
 
 CypherDialect.Generator overrides these with Cypher-native output (e.g.
@@ -13,6 +14,7 @@ from __future__ import annotations
 import typing as t
 
 from graphglot.ast.cypher import (
+    CreateClause,
     CypherChainedComparison,
     CypherPatternPredicate,
     ListPredicateFunction,
@@ -95,3 +97,9 @@ def generate_list_predicate(gen: Generator, expr: ListPredicateFunction) -> Frag
 
     # none, all → (NOT EXISTS { ... })
     return parens(seq("NOT", exists))
+
+
+@generates(CreateClause)
+def generate_create_clause(gen: Generator, expr: CreateClause) -> Fragment:
+    """``CREATE <pattern>`` → ``INSERT <pattern>``."""
+    return gen.seq(gen.keyword("INSERT"), gen.dispatch(expr.insert_graph_pattern))

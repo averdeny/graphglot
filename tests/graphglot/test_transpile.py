@@ -257,3 +257,96 @@ class TestTranspileFeatureValidation(unittest.TestCase):
         result = fullgql.transpile("MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) WHERE p = q RETURN p")
         self.assertEqual(len(result), 1)
         self.assertIn("MATCH", result[0])
+
+
+class TestTranspileCreateClause(unittest.TestCase):
+    """Tests for Neo4j CREATE → GQL INSERT transpilation."""
+
+    def setUp(self):
+        self.runner = CliRunner()
+        self.neo4j = Dialect.get_or_raise("neo4j")
+        self.fullgql = Dialect.get_or_raise("fullgql")
+
+    def _neo4j_to_fullgql(self, query: str) -> str:
+        """Parse with Neo4j, transform, generate with FullGQL."""
+        validation = self.neo4j.validate(query)
+        expressions = self.neo4j.transform(validation.expressions)
+        return self.fullgql.generate(expressions[0])
+
+    # -- Dialect API tests --
+
+    def test_create_simple_node_to_fullgql(self):
+        """Neo4j CREATE (n:Person) → FullGQL INSERT (n:Person)."""
+        result = self._neo4j_to_fullgql("CREATE (n:Person)")
+        self.assertIn("INSERT", result)
+        self.assertNotIn("CREATE", result)
+        self.assertIn("Person", result)
+
+    def test_create_node_with_properties_to_fullgql(self):
+        """Neo4j CREATE (n:Person {name: 'Alice'}) → FullGQL INSERT."""
+        result = self._neo4j_to_fullgql("CREATE (n:Person {name: 'Alice'})")
+        self.assertIn("INSERT", result)
+        self.assertIn("Person", result)
+        self.assertIn("Alice", result)
+
+    def test_create_relationship_to_fullgql(self):
+        """Neo4j CREATE (a)-[r:KNOWS]->(b) → FullGQL INSERT with edge."""
+        result = self._neo4j_to_fullgql("CREATE (a)-[r:KNOWS]->(b)")
+        self.assertIn("INSERT", result)
+        self.assertIn("KNOWS", result)
+
+    def test_cypher_still_emits_create(self):
+        """Neo4j roundtrip still uses CREATE, not INSERT."""
+        result = self.neo4j.transpile("CREATE (n:Person)")
+        self.assertEqual(len(result), 1)
+        self.assertIn("CREATE", result[0])
+        self.assertNotIn("INSERT", result[0])
+
+    # -- CLI tests --
+
+    def test_cli_create_to_fullgql(self):
+        """CLI: neo4j CREATE → fullgql INSERT."""
+        result = self.runner.invoke(
+            cli,
+            ["transpile", "-r", "neo4j", "-w", "fullgql", "CREATE (n:Person {name: 'Alice'})"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("INSERT", result.output)
+        self.assertNotIn("CREATE", result.output)
+
+    def test_cli_create_relationship_to_fullgql(self):
+        """CLI: neo4j CREATE edge → fullgql INSERT."""
+        result = self.runner.invoke(
+            cli,
+            ["transpile", "-r", "neo4j", "-w", "fullgql", "CREATE (a)-[r:KNOWS]->(b)"],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("INSERT", result.output)
+        self.assertIn("KNOWS", result.output)
+
+    def test_cli_match_create_return_to_fullgql(self):
+        """CLI: MATCH+CREATE+RETURN compound query transpiles to GQL."""
+        result = self.runner.invoke(
+            cli,
+            [
+                "transpile",
+                "-r",
+                "neo4j",
+                "-w",
+                "fullgql",
+                "MATCH (a:Person) CREATE (a)-[r:KNOWS]->(b:Person) RETURN r",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("INSERT", result.output)
+        self.assertIn("MATCH", result.output)
+        self.assertIn("RETURN", result.output)
+
+    def test_cli_create_to_coregql_rejected(self):
+        """CLI: neo4j CREATE → coregql fails (CoreGQL lacks GD01 updatable graphs)."""
+        result = self.runner.invoke(
+            cli,
+            ["transpile", "-r", "neo4j", "-w", "coregql", "CREATE (n:Person)"],
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("GD01", result.output)
