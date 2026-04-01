@@ -126,9 +126,9 @@ class TestVariableAlreadyBound(unittest.TestCase):
     """variable-already-bound: re-declaring a bound variable in CREATE/MERGE."""
 
     def test_create_rebind_matched(self):
-        """MATCH (a) CREATE (a) → diagnostic (Cypher CREATE: all vars must be new)."""
+        """MATCH (a) CREATE (a) → no diagnostic (Cypher allows node reuse in CREATE)."""
         result = _analyze("MATCH (a) CREATE (a)")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_create_new_var_ok(self):
         """MATCH (a) CREATE (b) → no diagnostic."""
@@ -386,9 +386,9 @@ class TestNextScopePropagation(unittest.TestCase):
         self.assertIn("undefined-variable", _feature_ids(result))
 
     def test_next_already_bound(self):
-        """MATCH (a) WITH a MATCH (b) CREATE (a) RETURN b → diagnostic (bare-only CREATE)."""
+        """MATCH (a) WITH a MATCH (b) CREATE (a) RETURN b → no diagnostic (Cypher node reuse)."""
         result = _analyze("MATCH (a) WITH a MATCH (b) CREATE (a) RETURN b")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
 
 # ===========================================================================
@@ -873,9 +873,9 @@ class TestTypeConflictInCallBodies(unittest.TestCase):
         self.assertIn("variable-type-conflict", _feature_ids(result))
 
     def test_already_bound_inside_call(self):
-        """CALL { MATCH (a) CREATE (a) RETURN a } RETURN a → diagnostic (bare-only CREATE)."""
+        """CALL { MATCH (a) CREATE (a) RETURN a } RETURN a → no diagnostic (Cypher node reuse)."""
         result = _analyze("CALL { MATCH (a) CREATE (a) RETURN a } RETURN a")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_call_export_type_conflict(self):
         """Value→node across CALL: exported value re-bound as node."""
@@ -1680,11 +1680,11 @@ class TestAlreadyBoundAdvanced(unittest.TestCase):
     """Advanced already-bound detection tests."""
 
     def test_create_after_call_export(self):
-        """CALL exports 'a', then CREATE (a) → diagnostic (bare-only CREATE)."""
+        """CALL exports 'a', then CREATE (a) → no diagnostic (Cypher allows node reuse)."""
         result = _analyze(
             "CALL { MATCH (a) RETURN a } CREATE (a) RETURN a",
         )
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_create_after_for(self):
         """FOR a IN [1,2] INSERT (a:T) → already bound."""
@@ -1697,9 +1697,9 @@ class TestAlreadyBoundAdvanced(unittest.TestCase):
         self.assertIn("variable-already-bound", _feature_ids(result))
 
     def test_create_after_yield(self):
-        """MATCH + CALL YIELD a + CREATE (a) → already bound (MATCH binds, CREATE re-declares)."""
+        """MATCH (a) CREATE (a:T) → no diagnostic (Cypher allows decorated node reuse)."""
         result = _analyze("MATCH (a) CREATE (a:T)")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_merge_same_var_node_edge(self):
         """MATCH (a) MERGE (a)-[r:T]->(b) → no diagnostic (bare filler = reference)."""
@@ -2246,8 +2246,8 @@ class TestDiagnosticLineCol(unittest.TestCase):
             self.assertIsNotNone(d.col)
 
     def test_already_bound_has_position(self):
-        """variable-already-bound diagnostic carries line/col."""
-        result = _analyze("MATCH (n) CREATE (n:T)")
+        """variable-already-bound diagnostic carries line/col (GQL INSERT)."""
+        result = _analyze("INSERT (n:Person), (n:Dog)", dialect=_full)
         diags = [d for d in result.diagnostics if d.feature_id == "variable-already-bound"]
         self.assertTrue(len(diags) >= 1)
         for d in diags:
@@ -2323,9 +2323,9 @@ class TestCrossStatementBareReference(unittest.TestCase):
         self.assertNotIn("undefined-variable", _feature_ids(result))
 
     def test_merge_decorated_redeclaration(self):
-        """MATCH (a) MERGE (a:Dog)-[r:T]->(b) → diagnostic (decorated filler)."""
+        """MATCH (a) MERGE (a:Dog)-[r:T]->(b) → no diagnostic (Cypher allows node reuse)."""
         result = _analyze("MATCH (a) MERGE (a:Dog)-[r:T]->(b)")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
 
 # ===========================================================================
@@ -2376,12 +2376,16 @@ class TestIntegrationQueriesNoFalsePositives(unittest.TestCase):
 
 
 class TestCreateMergeRebinding(unittest.TestCase):
-    """variable-already-bound: CREATE/MERGE rebinding semantics."""
+    """variable-already-bound: CREATE/MERGE rebinding semantics.
 
-    def test_create_bare_only_rebind(self):
-        """MATCH (a) CREATE (a) → diagnostic (no new bindings in CREATE)."""
+    Cypher allows reusing bound node variables in CREATE/MERGE (they are
+    Cypher-only AST nodes).  GQL INSERT retains the strict check.
+    """
+
+    def test_create_bare_only_rebind_no_diagnostic(self):
+        """MATCH (a) CREATE (a) → no diagnostic (Cypher allows node reuse)."""
         result = _analyze("MATCH (a) CREATE (a)")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_create_bare_edge_rebind(self):
         """MATCH ()-[r]->() CREATE ()-[r]->() → diagnostic (edge rebind)."""
@@ -2393,10 +2397,10 @@ class TestCreateMergeRebinding(unittest.TestCase):
         result = _analyze("MATCH (a), (b) CREATE (a)-[r:KNOWS]->(b) RETURN r")
         self.assertNotIn("variable-already-bound", _feature_ids(result))
 
-    def test_merge_only_bare_node(self):
-        """MATCH (a) MERGE (a) → diagnostic (MERGE with no new bindings)."""
+    def test_merge_only_bare_node_no_diagnostic(self):
+        """MATCH (a) MERGE (a) → no diagnostic (Cypher allows node reuse)."""
         result = _analyze("MATCH (a) MERGE (a)")
-        self.assertIn("variable-already-bound", _feature_ids(result))
+        self.assertNotIn("variable-already-bound", _feature_ids(result))
 
     def test_merge_edge_rebind(self):
         """MATCH (a)-[r]->(b) MERGE (a)-[r]->(b) → diagnostic (edge r rebind)."""
@@ -2407,6 +2411,11 @@ class TestCreateMergeRebinding(unittest.TestCase):
         """MATCH (a) MERGE (a)-[:NEW]->(b) → no diagnostic (bare node ref + new edge)."""
         result = _analyze("MATCH (a) MERGE (a)-[:NEW]->(b)")
         self.assertNotIn("variable-already-bound", _feature_ids(result))
+
+    def test_insert_redeclaration_gql_cypher_dialect(self):
+        """INSERT (a:Foo) INSERT (a:Bar) → diagnostic (GQL INSERT always strict)."""
+        result = _analyze("FOR x IN [1] INSERT (a:Foo) INSERT (a:Bar)", dialect=_full)
+        self.assertIn("variable-already-bound", _feature_ids(result))
 
 
 # ===========================================================================

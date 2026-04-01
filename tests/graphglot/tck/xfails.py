@@ -12,13 +12,13 @@ Three TCK test suites share this registry:
   test_tck_roundtrip.py  — Does parse→generate→re-parse + zero scope diagnostics?  (XFAIL_ROUNDTRIP)
   test_tck_errors.py     — Do invalid queries produce errors?  (XFAIL_ERROR)
 
-Current results (2026-03-31):
+Current results (2026-04-01):
 
   Parse:     3897/3897 = 100%   — 0 xfails
-  Roundtrip: 3217/3279 = 98.1%  — 62 xfails (scope validator false positives for Cypher)
+  Roundtrip: 3243/3279 = 99.0%  — 36 xfails (scope validator false positives for Cypher)
   Error:      540/600  = 90.0%  — 60 xfails (need semantic analysis, not syntax)
 
-The 62 roundtrip xfails are NOT parse, generator, or transformation
+The 36 roundtrip xfails are NOT parse, generator, or transformation
 failures.  They are false positives from the scope/type validator
 which applies GQL rules that do not hold for Cypher (e.g., Cypher
 allows bound variables in CREATE/MERGE, implicit GROUP BY, etc.).
@@ -69,14 +69,13 @@ _INDIVIDUAL_XFAIL_IDS: frozenset[str] = frozenset()
 # These are NOT transformation or generator bugs.  The scope/type validator
 # applies GQL-specific rules that are too strict for Cypher:
 #
-#   variable-already-bound (27) — Cypher allows bound vars in CREATE/MERGE
-#   undefined-variable     (35) — with_to_next doesn't fire in data-modifying
-#                                 contexts (DELETE/CREATE after WITH); pattern
-#                                 comprehension vars not tracked
+#   undefined-variable (36) — with_to_next doesn't fire in data-modifying
+#                              contexts (DELETE/CREATE after WITH); pattern
+#                              comprehension vars not tracked
 #
-# Total: 62 scenarios (was 90; type-mismatch, orderby-agg,
-# distinct-order-by resolved by feature gating; variable-type-conflict
-# resolved by fixing value→element rebinding across projections).
+# Total: 36 scenarios (was 62; variable-already-bound resolved by skipping
+# check_already_bound for Cypher CREATE/MERGE node bindings; Merge1__8
+# remains due to undefined-variable from WITH→MERGE scope loss).
 # The WITH...WHERE scope-loss bugs have been fixed; the Delete6__5/12 entries
 # remain because with_to_next does not fire in data-modifying contexts.
 #
@@ -85,34 +84,8 @@ _SCOPE_FP = XFailEntry(
     XFailCategory.SEMANTIC_ONLY,
 )
 XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {
-    # -- variable-already-bound: Cypher allows bound vars in CREATE/MERGE -------
-    "Create2__3_Create_two_nodes_and_a_single_relationship_in_separate_claus": _SCOPE_FP,
-    "Create2__5_Create_a_single_relationship_between_two_existing_nodes": _SCOPE_FP,
-    "Create2__6_Create_a_single_relationship_between_two_existing_nodes_in_t": _SCOPE_FP,
-    "Create2__9_Create_a_single_node_and_a_single_self_loop_in_separate_clau": _SCOPE_FP,
-    "Create2__10_Create_a_single_self_loop_on_an_existing_node": _SCOPE_FP,
-    "Create2__11_Create_a_single_relationship_and_an_end_node_on_an_existing": _SCOPE_FP,
-    "Create2__12_Create_a_single_relationship_and_a_starting_node_on_an_exist": _SCOPE_FP,
-    "Create3__5_WITH_CREATE_Nodes_are_not_created_when_aliases_are_applied_t": _SCOPE_FP,
-    "Create3__6_WITH_CREATE_Only_a_single_node_is_created_when_an_alias_is_a": _SCOPE_FP,
-    "Create3__7_WITH_CREATE_Nodes_are_not_created_when_aliases_are_applied_t": _SCOPE_FP,
-    "Create3__8_WITH_CREATE_Only_a_single_node_is_created_when_an_alias_is_a": _SCOPE_FP,
-    "Create3__9_WITH_CREATE_A_bound_node_should_be_recognized_after_projecti": _SCOPE_FP,
-    "Create3__10_WITH_UNWIND_CREATE_A_bound_node_should_be_recognized_after_p": _SCOPE_FP,
-    "Create3__11_WITH_MERGE_CREATE_A_bound_node_should_be_recognized_after_pr": _SCOPE_FP,
-    "Create3__12_WITH_MERGE_CREATE_A_bound_node_should_be_recognized_after_pr": _SCOPE_FP,
-    "Create3__13_Merge_followed_by_multiple_creates": _SCOPE_FP,
-    "Create4__1_Generate_the_movie_graph": _SCOPE_FP,
+    # -- undefined-variable: WITH→MERGE scope loss (with_to_next in data-modifying) --
     "Merge1__8_Merge_should_handle_argument_properly": _SCOPE_FP,
-    "Merge5__4_Using_bound_variables_from_other_updating_clause": _SCOPE_FP,
-    "Merge5__9_Creating_relationship_using_merged_nodes": _SCOPE_FP,
-    "Merge5__18_Double_aliasing_of_existing_nodes_1": _SCOPE_FP,
-    "Merge5__19_Double_aliasing_of_existing_nodes_2": _SCOPE_FP,
-    "Merge5__20_Do_not_match_on_deleted_entities": _SCOPE_FP,
-    "Merge6__1_Using_ON_CREATE_on_a_node": _SCOPE_FP,
-    "Merge7__1_Using_ON_MATCH_on_created_node": _SCOPE_FP,
-    "Merge9__2_UNWIND_with_multiple_MERGE": _SCOPE_FP,
-    "Merge9__3_Mixing_MERGE_with_CREATE": _SCOPE_FP,
     # -- undefined-variable: WITH in data-modifying context / pattern comprehension --
     "Delete5__1_Delete_node_from_a_list": _SCOPE_FP,
     "Delete5__2_Delete_relationship_from_a_list": _SCOPE_FP,

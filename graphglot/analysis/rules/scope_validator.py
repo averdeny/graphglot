@@ -400,10 +400,14 @@ def _walk_insert_or_create(
     Bare fillers (no labels/properties) are always references — whether to
     a variable declared earlier in the same statement or in an outer scope.
     Only decorated fillers (with labels or properties) are declarations.
+
+    For Cypher CREATE/MERGE (which are Cypher-only AST types), node
+    rebinding is allowed — ``add_binding`` is used instead of
+    ``check_already_bound`` so that type-conflict checks still apply
+    but ``variable-already-bound`` diagnostics are not emitted.  Edge
+    rebinding remains an error for all clause types.
     """
     seen_in_stmt: set[str] = set()
-    has_new_binding = False
-    bare_outer_refs: list[tuple[str, ast.Expression]] = []
     for name, kind, node in bindings:
         bare = _is_bare_filler(node)
         if name in seen_in_stmt:
@@ -428,23 +432,16 @@ def _walk_insert_or_create(
                         node=node,
                     )
                 )
-            else:
-                # Bare node reference to outer scope — might be valid
-                bare_outer_refs.append((name, node))
+            # Bare node reference to outer scope — valid (no diagnostic)
         else:
-            state.check_already_bound(name, kind, node, clause)
-            has_new_binding = True
+            if clause in ("CREATE", "MERGE") and kind != "edge":
+                # Cypher allows reusing bound node variables in CREATE/MERGE.
+                # add_binding preserves type-conflict checks without emitting
+                # "variable-already-bound".
+                state.add_binding(name, kind, node)
+            else:
+                state.check_already_bound(name, kind, node, clause)
         seen_in_stmt.add(name)
-    # CREATE/MERGE with only bare outer refs and no new bindings is an error
-    if clause in ("CREATE", "MERGE") and bare_outer_refs and not has_new_binding:
-        name, node = bare_outer_refs[0]
-        state.diagnostics.append(
-            SemanticDiagnostic(
-                feature_id="variable-already-bound",
-                message=f"Variable '{name}' is already bound; cannot re-declare in {clause}.",
-                node=node,
-            )
-        )
 
 
 def _walk_clause(stmt: ast.Expression, state: _ScopeState) -> None:
