@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v0.8.2 (2026-04-01)
+
+### Bug Fixes
+
+- Resolve 15 TCK roundtrip xfails via feature declarations
+  ([`8feea74`](https://github.com/averdeny/graphglot/commit/8feea7413c8f1a72a8aa2ff5e0f9cad4a8835ba5))
+
+- Resolve 28 TCK roundtrip xfails via feature gating and scope fix
+  ([`e32731c`](https://github.com/averdeny/graphglot/commit/e32731ca347c17ef1d569231ebc2b5e21e2b3f02))
+
+- Transpile Cypher list concatenation (+) to GQL (||)
+  ([`71a354c`](https://github.com/averdeny/graphglot/commit/71a354c6f14e2194e0d566a0205b2eb106d0afaf))
+
+
 ## v0.8.1 (2026-03-31)
 
 ### Bug Fixes
