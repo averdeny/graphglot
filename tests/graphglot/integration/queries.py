@@ -584,6 +584,12 @@ LITERAL_CASES = [
     QueryTestCase("lit_false", "RETURN FALSE AS result", expected_value=False, category="literal"),
     QueryTestCase("lit_null", "RETURN NULL AS result", expected_value=None, category="literal"),
     QueryTestCase("lit_list", "RETURN [1, 2, 3] AS result", expected_rows=1, category="literal"),
+    QueryTestCase(
+        "lit_list_concat",
+        "RETURN [1, 10, 100] + [4, 5] AS result",
+        expected_value=[1, 10, 100, 4, 5],
+        category="literal",
+    ),
     QueryTestCase("lit_negative", "RETURN -1 AS result", expected_value=-1, category="literal"),
     QueryTestCase(
         "lit_date",

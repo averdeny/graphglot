@@ -698,6 +698,52 @@ class TestResolveAmbiguous(unittest.TestCase):
         self.assertTrue(len(nve) > 0)
         self.assertEqual(nve[0]._resolved_type, original_type)
 
+    # ------------------------------------------------------------------
+    # List concatenation → ListValueExpression
+    # ------------------------------------------------------------------
+
+    def test_arithmetic_list_concat_resolved(self):
+        """RETURN [1, 2] + [3, 4] → ListValueExpression (Cypher list concat)."""
+        neo4j = Neo4j()
+        tree = self._parse_one("RETURN [1, 2] + [3, 4]", dialect=neo4j)
+        result = resolve_ambiguous(tree)
+        lve = self._find_types(result, ast.ListValueExpression)
+        self.assertGreaterEqual(len(lve), 1, "Should have ListValueExpression")
+        # Only AVEs with actual operations (steps) should be gone; bare wrappers
+        # around individual list element literals are expected to remain.
+        ave_with_steps = [
+            n for n in result.dfs() if isinstance(n, ast.ArithmeticValueExpression) and n.steps
+        ]
+        self.assertEqual(len(ave_with_steps), 0, "ArithmeticVE with steps should be gone")
+
+    def test_arithmetic_list_minus_stays(self):
+        """RETURN [1, 2] - [3] → ArithmeticVE stays (difference, not concat)."""
+        neo4j = Neo4j()
+        tree = self._parse_one("RETURN [1, 2] - [3]", dialect=neo4j)
+        result = resolve_ambiguous(tree)
+        ave_with_steps = [
+            n for n in result.dfs() if isinstance(n, ast.ArithmeticValueExpression) and n.steps
+        ]
+        self.assertGreaterEqual(len(ave_with_steps), 1, "ArithmeticVE should remain for list -")
+
+    def test_list_concat_transpile_to_gql(self):
+        """Cypher [1,2]+[3,4] → GQL uses || after transform."""
+        neo4j = Neo4j()
+        gql = Dialect()
+        tree = self._parse_one("RETURN [1, 2] + [3, 4]", dialect=neo4j)
+        transformed = gql.transform([tree])
+        output = gql.generate(transformed[0])
+        self.assertIn("||", output, "GQL output should use || for list concat")
+        self.assertNotIn("+", output, "GQL output should not use + for list concat")
+
+    def test_list_concat_cypher_transform_roundtrip(self):
+        """Cypher [1,2]+[3,4] → || after transform+generate (GQL list concat)."""
+        neo4j = Neo4j()
+        tree = self._parse_one("RETURN [1, 2] + [3, 4]", dialect=neo4j)
+        transformed = neo4j.transform([tree])
+        output = neo4j.generate(transformed[0])
+        self.assertIn("||", output, "Transformed output should use || for list concat")
+
 
 class TestCypherToGqlGeneration(unittest.TestCase):
     """Test cross-dialect generation: Cypher nodes → GQL output via base generators."""

@@ -112,7 +112,16 @@ def type_arithmetic_value_expression(annotator, expr):
 
     step_types = [_resolve_type(step.term) for step in expr.steps]
 
-    if _any_incompatible([base_type, *step_types], _ARITHMETIC_KINDS):
+    all_types = [base_type, *step_types]
+
+    # Cypher list arithmetic: list + list (concat), list - list (difference).
+    # Only fires when every concrete operand is LIST (unknowns are permissive).
+    if not _any_incompatible(all_types, frozenset({TypeKind.LIST})) and any(
+        t.kind == TypeKind.LIST for t in all_types
+    ):
+        return GqlType.list_()
+
+    if _any_incompatible(all_types, _ARITHMETIC_KINDS):
         return GqlType.unknown()
 
     if base_type.is_numeric:

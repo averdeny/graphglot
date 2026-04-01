@@ -466,6 +466,8 @@ def _resolve_arithmetic(node: ast.ArithmeticValueExpression) -> Expression | Non
         return _resolve_arithmetic_duration(node)
     if rt.is_temporal:
         return _resolve_arithmetic_datetime(node)
+    if rt.kind == TypeKind.LIST:
+        return _resolve_arithmetic_list(node)
     return None
 
 
@@ -528,6 +530,37 @@ def _resolve_arithmetic_datetime(
                 )
             )
     return ast.DatetimeValueExpression._construct(base=datetime_primary, steps=steps)
+
+
+def _resolve_arithmetic_list(
+    node: ast.ArithmeticValueExpression,
+) -> ast.ListValueExpression | None:
+    """Convert list+list ArithmeticValueExpression → ListValueExpression."""
+    # Only transform concat (+), not difference (-)
+    if not all(s.sign == ast.Sign.PLUS_SIGN for s in node.steps):
+        return None
+    primaries = []
+    p = _at_to_list_primary(node.base)
+    if p is None:
+        return None
+    primaries.append(p)
+    for step in node.steps:
+        p = _at_to_list_primary(step.term)
+        if p is None:
+            return None
+        primaries.append(p)
+    return ast.ListValueExpression._construct(list_list_primary=primaries)
+
+
+def _at_to_list_primary(at: ast.ArithmeticTerm) -> ast.Expression | None:
+    """Extract inner primary from ArithmeticTerm for list concat."""
+    if at.steps:
+        return None  # multiplicative steps → not simple list concat
+    ap = at.base.arithmetic_primary
+    # Unwrap unnecessary ParenthesizedValueExpression added by Cypher parser
+    if isinstance(ap, ast.ParenthesizedValueExpression):
+        ap = ap.value_expression
+    return ap
 
 
 # -- ABS --------------------------------------------------------------------

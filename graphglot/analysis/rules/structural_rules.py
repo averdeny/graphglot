@@ -762,9 +762,13 @@ def _check_additive_mismatch(node: ast.ArithmeticValueExpression) -> SemanticDia
     families = {_arithmetic_family(tp) for tp in types}
     if "other" in families:
         other = next(tp for tp in types if _arithmetic_family(tp) == "other")
+        if other.kind == TypeKind.LIST:
+            msg = "List subtraction (-) is not supported."
+        else:
+            msg = f"Arithmetic (+/-) not supported for {other.kind.value}."
         return SemanticDiagnostic(
             feature_id="type-mismatch",
-            message=f"Arithmetic (+/-) not supported for {other.kind.value}.",
+            message=msg,
             node=node,
         )
     if "numeric" in families and families & {"temporal", "duration"}:

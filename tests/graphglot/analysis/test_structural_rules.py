@@ -564,6 +564,18 @@ class TestTypeMismatch(unittest.TestCase):
         result = _analyze_with_ctx("MATCH (n:T) RETURN n.d1 + n.d2", ctx)
         self.assertNotIn("type-mismatch", _feature_ids(result))
 
+    # --- List arithmetic (Cypher) ---
+
+    def test_list_concat_neo4j_ok(self):
+        """[1,2] + [3] → valid (list + is transformed to ListValueExpression before analysis)."""
+        result = _neo4j.validate("RETURN [1, 2] + [3]")
+        self.assertTrue(result.success, f"Should validate: {result.diagnostics}")
+
+    def test_list_diff_rejected(self):
+        """[1,2] - [3] → diagnostic (list difference has no GQL equivalent)."""
+        result = _analyze("RETURN [1, 2, 3] - [2]")
+        self.assertIn("type-mismatch", _feature_ids(result))
+
     # --- Multiplicative arithmetic ---
 
     def test_mul_string_and_int(self):
