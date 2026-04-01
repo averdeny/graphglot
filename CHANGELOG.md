@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.8.3 (2026-04-01)
+
+### Bug Fixes
+
+- Resolve 26 TCK roundtrip xfails by allowing node rebinding in Cypher CREATE/MERGE
+  ([`2bfa8eb`](https://github.com/averdeny/graphglot/commit/2bfa8eb5f7e2a18c6c1040491ef96410be49da98))
+
+
 ## v0.8.2 (2026-04-01)
 
 ### Bug Fixes
