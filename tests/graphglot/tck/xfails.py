@@ -15,10 +15,10 @@ Three TCK test suites share this registry:
 Current results (2026-03-31):
 
   Parse:     3897/3897 = 100%   — 0 xfails
-  Roundtrip: 3189/3279 = 97.3%  — 90 xfails (scope validator false positives for Cypher)
+  Roundtrip: 3217/3279 = 98.1%  — 62 xfails (scope validator false positives for Cypher)
   Error:      540/600  = 90.0%  — 60 xfails (need semantic analysis, not syntax)
 
-The 90 roundtrip xfails are NOT parse, generator, or transformation
+The 62 roundtrip xfails are NOT parse, generator, or transformation
 failures.  They are false positives from the scope/type validator
 which applies GQL rules that do not hold for Cypher (e.g., Cypher
 allows bound variables in CREATE/MERGE, implicit GROUP BY, etc.).
@@ -70,16 +70,13 @@ _INDIVIDUAL_XFAIL_IDS: frozenset[str] = frozenset()
 # applies GQL-specific rules that are too strict for Cypher:
 #
 #   variable-already-bound (27) — Cypher allows bound vars in CREATE/MERGE
-#   undefined-variable     (27) — with_to_next doesn't fire in data-modifying
+#   undefined-variable     (35) — with_to_next doesn't fire in data-modifying
 #                                 contexts (DELETE/CREATE after WITH); pattern
 #                                 comprehension vars not tracked
-#   type-mismatch          (13) — string concat via +, subscript access
-#   orderby-agg            (11) — Cypher implicit GROUP BY not modeled
-#   variable-type-conflict (10) — re-binding var as different kind across WITH
-#   distinct-order-by       (2) — Cypher allows ORDER BY on non-projected with DISTINCT
 #
-# Total: 90 scenarios (was 105; GA04, GA09, GE09, non-constant-skip-limit
-# resolved by declaring feature support).
+# Total: 62 scenarios (was 90; type-mismatch, orderby-agg,
+# distinct-order-by resolved by feature gating; variable-type-conflict
+# resolved by fixing value→element rebinding across projections).
 # The WITH...WHERE scope-loss bugs have been fixed; the Delete6__5/12 entries
 # remain because with_to_next does not fire in data-modifying contexts.
 #
@@ -144,46 +141,15 @@ XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {
     "Path1__1_nodes_on_null_path": _SCOPE_FP,
     "Path2__3_relationships_on_null_path": _SCOPE_FP,
     "Unwind1__6_Creating_nodes_from_an_unwound_parameter_list": _SCOPE_FP,
-    # -- type-mismatch: string concat via +, subscript, type inference gaps -----
-    "ReturnOrderBy5__1_Renaming_columns_before_ORDER_BY_should_return_results_in_as": _SCOPE_FP,
-    "Graph7__1_Execute_n_name_in_read_queries": _SCOPE_FP,
-    "Graph7__2_Execute_n_name_in_update_queries": _SCOPE_FP,
-    "List4__1_Concatenating_lists_of_same_type": _SCOPE_FP,
-    "List4__2_Concatenating_a_list_with_a_scalar_of_same_type": _SCOPE_FP,
-    "List6__3_Concatenating_and_returning_the_size_of_literal_lists": _SCOPE_FP,
+    # -- undefined-variable: list comprehension scope / data-modifying context --
     "List12__1_Collect_and_extract_using_a_list_comprehension": _SCOPE_FP,
     "List12__2_Collect_and_filter_using_a_list_comprehension": _SCOPE_FP,
-    "Precedence3__1_List_element_access_takes_precedence_over_list_appending": _SCOPE_FP,
-    "Precedence3__2_List_element_access_takes_precedence_over_list_concatenation": _SCOPE_FP,
-    "Precedence3__3_List_slicing_takes_precedence_over_list_concatenation": _SCOPE_FP,
-    "Precedence3__4_List_appending_takes_precedence_over_list_element_containmen": _SCOPE_FP,
-    "Precedence3__5_List_concatenation_takes_precedence_over_list_element_contai": _SCOPE_FP,
-    # -- orderby-aggregate-without-groupby: Cypher implicit GROUP BY ------------
-    "ReturnOrderBy2__3_Sort_on_aggregated_function": _SCOPE_FP,
-    "ReturnOrderBy2__6_Count_star_should_count_everything_in_scope": _SCOPE_FP,
-    "ReturnOrderBy2__10_Returned_columns_do_not_change_from_using_ORDER_BY": _SCOPE_FP,
-    "ReturnOrderBy3__1_Sort_on_aggregate_function_and_normal_property": _SCOPE_FP,
-    "ReturnOrderBy6__1_Handle_constants_and_parameters_inside_an_order_by_item_whic": _SCOPE_FP,
-    "ReturnOrderBy6__2_Handle_returned_aliases_inside_an_order_by_item_which_contai": _SCOPE_FP,
-    "ReturnOrderBy6__3_Handle_returned_property_accesses_inside_an_order_by_item_wh": _SCOPE_FP,
-    "WithOrderBy4__11_Sort_by_an_aggregate_projection": _SCOPE_FP,
-    "WithOrderBy4__16_Handle_constants_and_parameters_inside_an_order_by_item_whic": _SCOPE_FP,
-    "WithOrderBy4__17_Handle_projected_variables_inside_an_order_by_item_which_con": _SCOPE_FP,
-    "WithOrderBy4__18_Handle_projected_property_accesses_inside_an_order_by_item_w": _SCOPE_FP,
-    # -- variable-type-conflict: re-binding var as different kind across WITH ----
-    "Match4__8_Matching_relationships_into_a_list_and_matching_variable_len": _SCOPE_FP,
-    "Match7__22_MATCH_after_OPTIONAL_MATCH": _SCOPE_FP,
-    "Match9__6_Matching_relationships_into_a_list_and_matching_variable_len": _SCOPE_FP,
-    "Match9__7_Matching_relationships_into_a_list_and_matching_variable_len": _SCOPE_FP,
     "Set6__7_Aggregating_in_WITH_after_setting_a_property_on_nodes_affect": _SCOPE_FP,
     "Set6__14_Aggregating_in_WITH_after_adding_a_label_on_nodes_affects_th": _SCOPE_FP,
     "Set6__21_Aggregating_in_WITH_after_setting_a_property_on_relationship": _SCOPE_FP,
     "Remove3__7_Aggregating_in_WITH_after_removing_a_property_from_nodes_aff": _SCOPE_FP,
     "Remove3__14_Aggregating_in_WITH_after_removing_a_label_from_nodes_affect": _SCOPE_FP,
     "Remove3__21_Aggregating_in_WITH_after_removing_a_property_from_relations": _SCOPE_FP,
-    # -- distinct-order-by-non-projected: Cypher allows it ----------------------
-    "ReturnOrderBy2__4_Support_sort_and_distinct": _SCOPE_FP,
-    "ReturnOrderBy2__5_Support_ordering_by_a_property_after_being_distinct_ified": _SCOPE_FP,
 }
 
 XFAIL_ERROR: dict[str, XFailEntry] = {}

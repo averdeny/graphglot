@@ -1,10 +1,15 @@
-"""Scope validation rules (always enforced, not feature-gated).
+"""Scope validation rules.
+
+Structural (always enforced):
 
 variable-type-conflict            — Cross-clause node/edge/path type mismatch
 variable-already-bound            — Re-declaration in CREATE/MERGE
 undefined-variable                — Reference to variable not in current scope
 return-star-no-variables          — RETURN * with no variables in scope
-distinct-order-by-non-projected   — ORDER BY key not in RETURN with DISTINCT
+
+Feature-gated (suppressed when dialect supports the feature):
+
+CY:CL09                          — DISTINCT ORDER BY on projected properties
 """
 
 # Architecture: recursive tree walker (ADR-006).  Known watchpoints:
@@ -26,8 +31,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from graphglot import features as F
 from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
-from graphglot.analysis.rules._registry import structural_rule
+from graphglot.analysis.rules._registry import analysis_rule, structural_rule
 from graphglot.ast import expressions as ast
 from graphglot.scope import (
     extract_pattern_bindings as _extract_pattern_bindings,
@@ -193,10 +199,16 @@ class _ScopeState:
         )
 
     def add_binding(self, name: str, kind: str, node: ast.Expression) -> None:
-        """Add a pattern binding, checking for type conflicts."""
+        """Add a pattern binding, checking for type conflicts.
+
+        Variables projected through RETURN/WITH as value expressions receive
+        kind ``"value"``.  Re-binding such a variable as a concrete element
+        kind (node/edge/path) in a subsequent MATCH is allowed — the
+        projection boundary resets the kind.
+        """
         if name in self.bindings:
             existing_kind, _ = self.bindings[name]
-            if existing_kind != kind:
+            if existing_kind != kind and existing_kind != "value":
                 self.diagnostics.append(
                     SemanticDiagnostic(
                         feature_id="variable-type-conflict",
@@ -207,6 +219,8 @@ class _ScopeState:
                         node=node,
                     )
                 )
+            # Update binding to reflect the new kind after projection
+            self.bindings[name] = (kind, node)
         else:
             self.bindings[name] = (kind, node)
         self.names.add(name)
@@ -688,7 +702,7 @@ def _check_distinct_order_by(
         if sort_key not in allowed:
             state.diagnostics.append(
                 SemanticDiagnostic(
-                    feature_id="distinct-order-by-non-projected",
+                    feature_id="CY:CL09",
                     message="With DISTINCT, ORDER BY expression must appear in the RETURN clause.",
                     node=spec,
                 )
@@ -800,11 +814,11 @@ def check_undefined_variable(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
     ]
 
 
-@structural_rule("distinct-order-by-non-projected")
+@analysis_rule(F.CY_CL09)
 def check_distinct_order_by(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
-    """Detect ORDER BY keys not in RETURN projection when DISTINCT is used."""
-    return [
-        d
-        for d in _get_scope_diagnostics(ctx.expression)
-        if d.feature_id == "distinct-order-by-non-projected"
-    ]
+    """Detect ORDER BY keys not in RETURN projection when DISTINCT is used.
+
+    Feature-gated via CY:CL09 — Cypher allows ORDER BY on properties of
+    DISTINCT-projected variables (e.g. ``RETURN DISTINCT a ORDER BY a.name``).
+    """
+    return [d for d in _get_scope_diagnostics(ctx.expression) if d.feature_id == "CY:CL09"]

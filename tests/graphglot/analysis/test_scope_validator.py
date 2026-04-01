@@ -1,11 +1,13 @@
 """Tests for scope validation rules.
 
+Structural (always enforced):
+
 variable-type-conflict   — Cross-clause node/edge type mismatch
 variable-already-bound   — Re-declaration in CREATE/MERGE/YIELD
 undefined-variable       — Reference to variable not in current scope
 return-star-no-variables — RETURN * with no variables in scope
 
-These rules fire unconditionally — they are not gated on dialect features.
+Feature-gated: CY:CL09 (DISTINCT ORDER BY on projected properties).
 """
 
 from __future__ import annotations
@@ -398,12 +400,12 @@ class TestFocusedStatementScope(unittest.TestCase):
     """Scope validation for focused (USE graph) statements."""
 
     def test_focused_type_conflict_across_next(self):
-        """USE g MATCH (n) RETURN n.name AS name NEXT USE g MATCH (name) RETURN name."""
+        """Value→node across NEXT: name projected as value, re-bound as node."""
         result = _analyze(
             "USE myGraph MATCH (n) RETURN n.name AS name NEXT USE myGraph MATCH (name) RETURN name",
             dialect=_full,
         )
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_focused_undefined_across_next(self):
         """USE g MATCH (a) RETURN a AS b NEXT USE g RETURN a → undefined."""
@@ -439,24 +441,24 @@ class TestValueKindTracking(unittest.TestCase):
     """Detect type conflicts when WITH projects a scalar and the next block uses it as element."""
 
     def test_literal_as_node(self):
-        """WITH 123 AS n MATCH (n) RETURN n → type conflict."""
+        """WITH 123 AS n MATCH (n) RETURN n → allowed (value→node across WITH)."""
         result = _analyze("WITH 123 AS n MATCH (n) RETURN n")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_literal_as_edge(self):
-        """WITH 123 AS r MATCH ()-[r]-() RETURN r → type conflict."""
+        """WITH 123 AS r MATCH ()-[r]-() RETURN r → allowed (value→edge across WITH)."""
         result = _analyze("WITH 123 AS r MATCH ()-[r]-() RETURN r")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_literal_as_path(self):
-        """WITH 123 AS p MATCH p = ()-[]->() RETURN p → type conflict."""
+        """WITH 123 AS p MATCH p = ()-[]->() RETURN p → allowed (value→path across WITH)."""
         result = _analyze("WITH 123 AS p MATCH p = ()-[]->() RETURN p")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_list_wrap_as_node(self):
-        """MATCH (n) WITH [n] AS users MATCH (users) RETURN users → type conflict."""
+        """Value→node: [n] projected as users, re-bound as node."""
         result = _analyze("MATCH (n) WITH [n] AS users MATCH (users) RETURN users")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_bare_var_rename_ok(self):
         """MATCH (n) WITH n AS m MATCH (m) RETURN m → no conflict (inherits node)."""
@@ -474,9 +476,9 @@ class TestValueKindTracking(unittest.TestCase):
         self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
     def test_with_shadow_type_conflict(self):
-        """MATCH (n) WITH 1 AS n MATCH (n) RETURN n → type-conflict."""
+        """MATCH (n) WITH 1 AS n MATCH (n) RETURN n → allowed (value→node across WITH)."""
         result = _analyze("MATCH (n) WITH 1 AS n MATCH (n) RETURN n")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
 
 # ===========================================================================
@@ -876,9 +878,9 @@ class TestTypeConflictInCallBodies(unittest.TestCase):
         self.assertIn("variable-already-bound", _feature_ids(result))
 
     def test_call_export_type_conflict(self):
-        """CALL exports value, outer MATCH uses as node → type-conflict."""
+        """Value→node across CALL: exported value re-bound as node."""
         result = _analyze("CALL { MATCH (n) RETURN 1 AS n } MATCH (n) RETURN n", dialect=_full)
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
 
 # ===========================================================================
@@ -1640,9 +1642,9 @@ class TestCrossRuleInteractions(unittest.TestCase):
         self.assertIn("missing_outer", found)
 
     def test_cross_with_type_conflict_value_kind(self):
-        """Type conflict across WITH boundary + value kind tracking."""
+        """Value→element rebinding across WITH boundary — now allowed."""
         result = _analyze("MATCH (n) WITH 1 AS n MATCH (n) RETURN n")
-        self.assertIn("variable-type-conflict", _feature_ids(result))
+        self.assertNotIn("variable-type-conflict", _feature_ids(result))
 
 
 class TestReturnStarAdvanced(unittest.TestCase):
@@ -2333,7 +2335,6 @@ class TestCrossStatementBareReference(unittest.TestCase):
 _SCOPE_FALSE_POSITIVE_IDS = {
     "variable-already-bound",
     "undefined-variable",
-    "distinct-order-by-non-projected",
 }
 
 
@@ -2415,27 +2416,36 @@ class TestCreateMergeRebinding(unittest.TestCase):
 
 
 class TestDistinctOrderByScope(unittest.TestCase):
-    """DISTINCT + ORDER BY: sort keys must reference projected variables."""
+    """CY:CL09: DISTINCT + ORDER BY sort keys must reference projected variables.
 
-    def test_distinct_order_by_non_projected(self):
-        """RETURN DISTINCT a.name ORDER BY a.age → diagnostic (a.age uses unprojected var)."""
-        result = _analyze("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age")
-        self.assertIn("distinct-order-by-non-projected", _feature_ids(result))
+    Feature-gated via CY:CL09 — Cypher allows ORDER BY on properties of
+    DISTINCT-projected variables.
+    """
+
+    def test_distinct_order_by_non_projected_gql(self):
+        """RETURN DISTINCT a.name ORDER BY a.age → diagnostic under GQL."""
+        result = _analyze("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age", dialect=_full)
+        self.assertIn("CY:CL09", _feature_ids(result))
 
     def test_distinct_order_by_same_var_ok(self):
         """RETURN DISTINCT a.name ORDER BY a.name → no diagnostic (same var)."""
         result = _analyze("MATCH (a) RETURN DISTINCT a.name ORDER BY a.name")
-        self.assertNotIn("distinct-order-by-non-projected", _feature_ids(result))
+        self.assertNotIn("CY:CL09", _feature_ids(result))
 
     def test_no_distinct_order_by_ok(self):
         """RETURN a.name ORDER BY a.age → no diagnostic (no DISTINCT)."""
         result = _analyze("MATCH (a) RETURN a.name ORDER BY a.age")
-        self.assertNotIn("distinct-order-by-non-projected", _feature_ids(result))
+        self.assertNotIn("CY:CL09", _feature_ids(result))
 
     def test_distinct_order_by_alias_ok(self):
         """RETURN DISTINCT a.name AS n ORDER BY n → no diagnostic (alias)."""
         result = _analyze("MATCH (a) RETURN DISTINCT a.name AS n ORDER BY n")
-        self.assertNotIn("distinct-order-by-non-projected", _feature_ids(result))
+        self.assertNotIn("CY:CL09", _feature_ids(result))
+
+    def test_neo4j_allows_distinct_orderby_property(self):
+        """Neo4j supports CY:CL09 — DISTINCT ORDER BY on property → no diagnostic."""
+        result = _analyze("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age")
+        self.assertNotIn("CY:CL09", _feature_ids(result))
 
 
 # ===========================================================================

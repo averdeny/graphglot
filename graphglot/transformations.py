@@ -536,6 +536,8 @@ def _resolve_arithmetic_list(
     node: ast.ArithmeticValueExpression,
 ) -> ast.ListValueExpression | None:
     """Convert list+list ArithmeticValueExpression → ListValueExpression."""
+    if node.steps is None:
+        return None
     # Only transform concat (+), not difference (-)
     if not all(s.sign == ast.Sign.PLUS_SIGN for s in node.steps):
         return None
@@ -556,7 +558,7 @@ def _at_to_list_primary(at: ast.ArithmeticTerm) -> ast.Expression | None:
     """Extract inner primary from ArithmeticTerm for list concat."""
     if at.steps:
         return None  # multiplicative steps → not simple list concat
-    ap = at.base.arithmetic_primary
+    ap: ast.Expression = at.base.arithmetic_primary
     # Unwrap unnecessary ParenthesizedValueExpression added by Cypher parser
     if isinstance(ap, ast.ParenthesizedValueExpression):
         ap = ap.value_expression

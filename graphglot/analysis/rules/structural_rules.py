@@ -10,14 +10,14 @@ nested-aggregation                 — Aggregate function containing another agg
 aggregation-in-non-return-context  — Aggregate outside RETURN/SELECT/ORDER BY
 same-pattern-node-edge-conflict    — Same variable as node and edge in one pattern
 boolean-operand-type               — Non-boolean operands to AND/OR/XOR/NOT
-orderby-aggregate-without-groupby  — Aggregate in ORDER BY without GROUP BY
 invalid-merge-pattern              — Invalid MERGE relationship pattern
 exists-no-update                   — Data-modifying statement inside EXISTS
-type-mismatch                      — Incompatible operand types in concat/arithmetic
 
 Feature-gated rules (suppressed when dialect supports the feature):
 
 CY:CL06                           — Expression-valued SKIP/LIMIT (§16.18-19)
+CY:CL07                           — Implicit GROUP BY for aggregation (§14.10)
+CY:OP05                           — Polymorphic + operator (string/list concat)
 """
 
 from __future__ import annotations
@@ -492,9 +492,13 @@ _ReturnWithOrderBy = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPage
 _ReturnItemsWithGroupBy = ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause
 
 
-@structural_rule("orderby-aggregate-without-groupby")
+@analysis_rule(F.CY_CL07)
 def check_orderby_aggregate_without_groupby(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
-    """Detect aggregate functions in ORDER BY without GROUP BY (§14.10 SR 4)."""
+    """Detect aggregate functions in ORDER BY without GROUP BY (§14.10 SR 4).
+
+    Feature-gated via CY:CL07 — Cypher has implicit GROUP BY when RETURN
+    mixes aggregated and non-aggregated columns.
+    """
     diagnostics: list[SemanticDiagnostic] = []
 
     for prs in ctx.expression.find_all(ast.PrimitiveResultStatement):
@@ -522,7 +526,7 @@ def check_orderby_aggregate_without_groupby(ctx: AnalysisContext) -> list[Semant
             if any(spec.find_all(ast.AggregateFunction)):
                 diagnostics.append(
                     SemanticDiagnostic(
-                        feature_id="orderby-aggregate-without-groupby",
+                        feature_id="CY:CL07",
                         message="Aggregate function in ORDER BY requires GROUP BY.",
                         node=spec,
                     )
@@ -745,12 +749,12 @@ def _check_concat_mismatch(node: ast.ConcatenationValueExpression) -> SemanticDi
                 "Concatenation (||) requires string, byte string, list,"
                 f" or path operands, got {rt.kind.value}."
             )
-            return SemanticDiagnostic(feature_id="type-mismatch", message=msg, node=node)
+            return SemanticDiagnostic(feature_id="CY:OP05", message=msg, node=node)
     kinds = {rt.kind for rt in concrete}
     if len(kinds) > 1:
         mixed = ", ".join(sorted(k.value for k in kinds))
         msg = f"Concatenation (||) operands have incompatible types: {mixed}."
-        return SemanticDiagnostic(feature_id="type-mismatch", message=msg, node=node)
+        return SemanticDiagnostic(feature_id="CY:OP05", message=msg, node=node)
     return None
 
 
@@ -778,13 +782,13 @@ def _check_additive_mismatch(node: ast.ArithmeticValueExpression) -> SemanticDia
         else:
             msg = f"Arithmetic (+/-) not supported for {other.kind.value}."
         return SemanticDiagnostic(
-            feature_id="type-mismatch",
+            feature_id="CY:OP05",
             message=msg,
             node=node,
         )
     if "numeric" in families and families & {"temporal", "duration"}:
         return SemanticDiagnostic(
-            feature_id="type-mismatch",
+            feature_id="CY:OP05",
             message="Cannot mix numeric and temporal/duration types in arithmetic (+/-).",
             node=node,
         )
@@ -811,28 +815,32 @@ def _check_multiplicative_mismatch(node: ast.ArithmeticTerm) -> SemanticDiagnost
     if "other" in families:
         other = next(tp for tp in types if _arithmetic_family(tp) == "other")
         return SemanticDiagnostic(
-            feature_id="type-mismatch",
+            feature_id="CY:OP05",
             message=f"Arithmetic (*/) not supported for {other.kind.value}.",
             node=node,
         )
     if "temporal" in families:
         return SemanticDiagnostic(
-            feature_id="type-mismatch",
+            feature_id="CY:OP05",
             message="Temporal types do not support multiplication/division.",
             node=node,
         )
     if sum(1 for tp in types if tp.kind == TypeKind.DURATION) >= 2:
         return SemanticDiagnostic(
-            feature_id="type-mismatch",
+            feature_id="CY:OP05",
             message="Cannot multiply/divide two duration values.",
             node=node,
         )
     return None
 
 
-@structural_rule("type-mismatch")
+@analysis_rule(F.CY_OP05)
 def check_type_mismatch(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
-    """Detect incompatible operand types in concatenation and arithmetic."""
+    """Detect incompatible operand types in concatenation and arithmetic.
+
+    Feature-gated via CY:OP05 — Cypher's ``+`` operator is polymorphic
+    (numeric, string concat, list concat, list append).
+    """
     diagnostics: list[SemanticDiagnostic] = []
     for node in ctx.expression.dfs():
         diag = None
