@@ -89,9 +89,15 @@ _NEO4J_SUPPORTED_OPTIONAL: set[Feature] = {
     # which are semantically equivalent to GQL's CAST(x AS TYPE)
     # GE07: XOR boolean operator — Neo4j supports Cypher's XOR
     F.GE07,
+    # GE09: Horizontal aggregation — Neo4j allows collect() in list comprehensions (§20.1 CR4)
+    F.GE09,
+    # GA04: Universal comparison — Neo4j allows cross-type comparison (§22.13 CR1, §22.14 CR1)
+    F.GA04,
     F.GA05,
     F.GA06,
     F.GA07,
+    # GA09: Comparison of paths — Neo4j allows p1 = p2 (§22.13 CR2)
+    F.GA09,
     F.GB01,
     # GB03: Cypher uses // comments
     F.GB03,

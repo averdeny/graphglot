@@ -1,10 +1,12 @@
-"""Tests for structural validation rules.
+"""Tests for structural validation rules and feature-gated rules in structural_rules.py.
 
-duplicate-alias, union-column-mismatch, mixed-query-conjunction,
-nested-aggregation, aggregation-in-non-return-context, same-pattern-node-edge-conflict,
-boolean-operand-type, orderby-aggregate-without-groupby, non-constant-skip-limit,
-invalid-merge-pattern, exists-no-update, type-mismatch.
-These rules fire unconditionally — they are not gated on dialect features.
+Structural (always enforced): duplicate-alias, union-column-mismatch,
+mixed-query-conjunction, nested-aggregation, aggregation-in-non-return-context,
+same-pattern-node-edge-conflict, boolean-operand-type,
+orderby-aggregate-without-groupby, invalid-merge-pattern, exists-no-update,
+type-mismatch.
+
+Feature-gated: CY:CL06 (expression-valued SKIP/LIMIT).
 """
 
 from __future__ import annotations
@@ -318,37 +320,46 @@ class TestOrderByAggregateWithoutGroupBy(unittest.TestCase):
 
 
 class TestNonConstantSkipLimit(unittest.TestCase):
-    """non-constant-skip-limit: SKIP/LIMIT require integer literal or parameter."""
+    """CY:CL06: SKIP/LIMIT require integer literal or parameter in GQL.
 
-    def test_variable_in_skip(self):
-        """MATCH (n) RETURN n SKIP n.num → diagnostic."""
+    The rule is feature-gated via CY:CL06.  Cypher dialects (Neo4j) support
+    the feature and suppress diagnostics; GQL dialects do not.
+    """
+
+    def test_variable_in_skip_gql(self):
+        """MATCH (n) RETURN n SKIP n.num → diagnostic under GQL."""
+        result = _analyze_cypher_as_gql("MATCH (n) RETURN n SKIP n.num")
+        self.assertIn("CY:CL06", _feature_ids(result))
+
+    def test_variable_in_limit_gql(self):
+        """MATCH (n) RETURN n LIMIT n.num → diagnostic under GQL."""
+        result = _analyze_cypher_as_gql("MATCH (n) RETURN n LIMIT n.num")
+        self.assertIn("CY:CL06", _feature_ids(result))
+
+    def test_aggregate_in_skip_gql(self):
+        """MATCH (n) RETURN n SKIP count(*) → diagnostic under GQL."""
+        result = _analyze_cypher_as_gql("MATCH (n) RETURN n SKIP count(*)")
+        self.assertIn("CY:CL06", _feature_ids(result))
+
+    def test_neo4j_allows_expression_skip(self):
+        """Neo4j supports CY:CL06 — expression SKIP → no diagnostic."""
         result = _analyze("MATCH (n) RETURN n SKIP n.num")
-        self.assertIn("non-constant-skip-limit", _feature_ids(result))
-
-    def test_variable_in_limit(self):
-        """MATCH (n) RETURN n LIMIT n.num → diagnostic."""
-        result = _analyze("MATCH (n) RETURN n LIMIT n.num")
-        self.assertIn("non-constant-skip-limit", _feature_ids(result))
+        self.assertNotIn("CY:CL06", _feature_ids(result))
 
     def test_literal_skip_ok(self):
         """MATCH (n) RETURN n SKIP 5 → no diagnostic."""
         result = _analyze("MATCH (n) RETURN n SKIP 5")
-        self.assertNotIn("non-constant-skip-limit", _feature_ids(result))
+        self.assertNotIn("CY:CL06", _feature_ids(result))
 
     def test_literal_limit_ok(self):
         """MATCH (n) RETURN n LIMIT 10 → no diagnostic."""
         result = _analyze("MATCH (n) RETURN n LIMIT 10")
-        self.assertNotIn("non-constant-skip-limit", _feature_ids(result))
+        self.assertNotIn("CY:CL06", _feature_ids(result))
 
     def test_param_in_limit_ok(self):
         """MATCH (n) RETURN n LIMIT $num → no diagnostic."""
         result = _analyze("MATCH (n) RETURN n LIMIT $num")
-        self.assertNotIn("non-constant-skip-limit", _feature_ids(result))
-
-    def test_aggregate_in_skip(self):
-        """MATCH (n) RETURN n SKIP count(*) → diagnostic."""
-        result = _analyze("MATCH (n) RETURN n SKIP count(*)")
-        self.assertIn("non-constant-skip-limit", _feature_ids(result))
+        self.assertNotIn("CY:CL06", _feature_ids(result))
 
 
 # ===========================================================================

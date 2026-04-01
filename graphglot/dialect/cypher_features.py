@@ -21,6 +21,7 @@ CYPHER_FEATURES: dict[str, Feature] = {
         F.CY_CL02,
         F.CY_CL04,
         F.CY_CL05,
+        F.CY_CL06,
         F.CY_EX01,
         F.CY_EX02,
         F.CY_OP01,

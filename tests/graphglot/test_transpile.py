@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from graphglot.cli import cli
 from graphglot.dialect import Dialect
-from graphglot.error import FeatureError, GraphGlotError
+from graphglot.error import FeatureError
 
 
 class TestDialectTranspile(unittest.TestCase):
@@ -209,47 +209,20 @@ class TestTranspileFeatureValidation(unittest.TestCase):
 
     # -- Semantic analysis (read side) --
 
-    def test_read_semantic_analysis_rejects_path_comparison(self):
-        """Read-side validate() catches GA09 (path comparison) on Neo4j."""
+    def test_read_semantic_analysis_accepts_path_comparison_neo4j(self):
+        """Neo4j supports GA09 — path comparison transpiles without error."""
         neo4j = Dialect.get_or_raise("neo4j")
-        with self.assertRaises(GraphGlotError) as ctx:
-            neo4j.transpile("MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) WHERE p = q RETURN p")
-        self.assertIn("GA09", str(ctx.exception))
+        result = neo4j.transpile("MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) WHERE p = q RETURN p")
+        self.assertEqual(len(result), 1)
+        self.assertIn("MATCH", result[0])
 
-    def test_cli_read_semantic_analysis_rejects(self):
-        """CLI: Read-side semantic analysis catches GA09 on Neo4j."""
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "transpile",
-                "-r",
-                "neo4j",
-                "MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) WHERE p = q RETURN p",
-            ],
-        )
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("GA09", result.output)
+    def test_read_semantic_analysis_accepts_universal_comparison_neo4j(self):
+        """Neo4j supports GA04 — cross-type comparison transpiles without error."""
+        neo4j = Dialect.get_or_raise("neo4j")
+        result = neo4j.transpile("MATCH ()-[r]->() RETURN type(r) = 'KNOWS'")
+        self.assertEqual(len(result), 1)
 
     # -- Semantic analysis (write side) --
-
-    def test_write_semantic_analysis_rejects_path_comparison(self):
-        """Write-side analysis catches GA09 when transpiling FullGQL → Neo4j."""
-        # FullGQL supports GA09 (read passes), Neo4j doesn't (write fails)
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            [
-                "transpile",
-                "-r",
-                "fullgql",
-                "-w",
-                "neo4j",
-                "MATCH p = (a)-[r]->(b), q = (c)-[s]->(d) WHERE p = q RETURN p",
-            ],
-        )
-        self.assertNotEqual(result.exit_code, 0)
-        self.assertIn("GA09", result.output)
 
     def test_write_semantic_analysis_passes_when_supported(self):
         """Write-side analysis passes when FullGQL → FullGQL (GA09 supported)."""

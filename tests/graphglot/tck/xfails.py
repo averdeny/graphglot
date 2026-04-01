@@ -15,10 +15,10 @@ Three TCK test suites share this registry:
 Current results (2026-03-31):
 
   Parse:     3897/3897 = 100%   — 0 xfails
-  Roundtrip: 3174/3279 = 96.8%  — 105 xfails (scope validator false positives for Cypher)
+  Roundtrip: 3189/3279 = 97.3%  — 90 xfails (scope validator false positives for Cypher)
   Error:      540/600  = 90.0%  — 60 xfails (need semantic analysis, not syntax)
 
-The 105 roundtrip xfails are NOT parse, generator, or transformation
+The 90 roundtrip xfails are NOT parse, generator, or transformation
 failures.  They are false positives from the scope/type validator
 which applies GQL rules that do not hold for Cypher (e.g., Cypher
 allows bound variables in CREATE/MERGE, implicit GROUP BY, etc.).
@@ -70,21 +70,18 @@ _INDIVIDUAL_XFAIL_IDS: frozenset[str] = frozenset()
 # applies GQL-specific rules that are too strict for Cypher:
 #
 #   variable-already-bound (27) — Cypher allows bound vars in CREATE/MERGE
-#   undefined-variable     (22) — with_to_next doesn't fire in data-modifying
+#   undefined-variable     (27) — with_to_next doesn't fire in data-modifying
 #                                 contexts (DELETE/CREATE after WITH); pattern
 #                                 comprehension vars not tracked
-#   type-mismatch          (11) — string concat via +, subscript access
-#   GA04                   (10) — type(r) = 'KNOWS' cross-type comparison
-#   orderby-agg            (10) — Cypher implicit GROUP BY not modeled
-#   variable-type-conflict  (6) — re-binding var as different kind across WITH
-#   distinct-order-by       (3) — Cypher allows ORDER BY on non-projected with DISTINCT
-#   GE09                    (3) — collect() inside list comprehension
-#   non-constant-skip-limit (2) — toInteger()/rand() in SKIP/LIMIT
-#   GA09                    (1) — path comparison
+#   type-mismatch          (13) — string concat via +, subscript access
+#   orderby-agg            (11) — Cypher implicit GROUP BY not modeled
+#   variable-type-conflict (10) — re-binding var as different kind across WITH
+#   distinct-order-by       (2) — Cypher allows ORDER BY on non-projected with DISTINCT
 #
-# Total: 105 scenarios.  The WITH...WHERE scope-loss bugs have been fixed;
-# the Delete6__5/12 entries remain because with_to_next does not fire in
-# data-modifying contexts.
+# Total: 90 scenarios (was 105; GA04, GA09, GE09, non-constant-skip-limit
+# resolved by declaring feature support).
+# The WITH...WHERE scope-loss bugs have been fixed; the Delete6__5/12 entries
+# remain because with_to_next does not fire in data-modifying contexts.
 #
 _SCOPE_FP = XFailEntry(
     "Scope validator false positive for Cypher semantics",
@@ -161,17 +158,6 @@ XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {
     "Precedence3__3_List_slicing_takes_precedence_over_list_concatenation": _SCOPE_FP,
     "Precedence3__4_List_appending_takes_precedence_over_list_element_containmen": _SCOPE_FP,
     "Precedence3__5_List_concatenation_takes_precedence_over_list_element_contai": _SCOPE_FP,
-    # -- GA04: type(r) comparison, cross-type comparison ------------------------
-    "MatchWhere1__7_Filter_relationship_with_relationship_type_predicate_on_mult": _SCOPE_FP,
-    "MatchWhere1__11_Filter_relationship_with_disjunctive_relationship_type_predi": _SCOPE_FP,
-    "Comparison1__6_Comparing_lists_to_lists__row2": _SCOPE_FP,
-    "Comparison1__8_Equality_and_inequality_of_NaN__row3": _SCOPE_FP,
-    "Comparison1__9_Equality_between_strings_and_numbers__row2": _SCOPE_FP,
-    "Comparison1__9_Equality_between_strings_and_numbers__row3": _SCOPE_FP,
-    "Comparison1__14_Direction_of_traversed_relationship_is_not_significant_for_p": _SCOPE_FP,
-    "Comparison2__5_Comparing_NaN__row3": _SCOPE_FP,
-    "Comparison2__6_Comparability_between_numbers_and_strings__row2": _SCOPE_FP,
-    "Comparison2__6_Comparability_between_numbers_and_strings__row3": _SCOPE_FP,
     # -- orderby-aggregate-without-groupby: Cypher implicit GROUP BY ------------
     "ReturnOrderBy2__3_Sort_on_aggregated_function": _SCOPE_FP,
     "ReturnOrderBy2__6_Count_star_should_count_everything_in_scope": _SCOPE_FP,
@@ -198,13 +184,6 @@ XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {
     # -- distinct-order-by-non-projected: Cypher allows it ----------------------
     "ReturnOrderBy2__4_Support_sort_and_distinct": _SCOPE_FP,
     "ReturnOrderBy2__5_Support_ordering_by_a_property_after_being_distinct_ified": _SCOPE_FP,
-    # -- GE09: collect() inside list comprehension ------------------------------
-    "List12__3_Size_of_list_comprehension": _SCOPE_FP,
-    "List12__4_Returning_a_list_comprehension": _SCOPE_FP,
-    "List12__5_Using_a_list_comprehension_in_a_WITH": _SCOPE_FP,
-    # -- non-constant-skip-limit: toInteger()/rand() in SKIP/LIMIT --------------
-    "ReturnSkipLimit1__3_SKIP_with_an_expression_that_does_not_depend_on_variables": _SCOPE_FP,
-    "ReturnSkipLimit2__6_LIMIT_with_an_expression_that_does_not_depend_on_variables": _SCOPE_FP,
 }
 
 XFAIL_ERROR: dict[str, XFailEntry] = {}

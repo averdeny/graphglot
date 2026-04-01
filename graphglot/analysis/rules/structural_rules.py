@@ -1,4 +1,6 @@
-"""Structural validation rules (always enforced, not feature-gated).
+"""Structural validation rules and locally-defined feature-gated rules.
+
+Structural rules (always enforced, not feature-gated):
 
 duplicate-alias                    — Duplicate column aliases in RETURN/WITH
 union-column-mismatch              — UNION branches with different column names
@@ -9,18 +11,22 @@ aggregation-in-non-return-context  — Aggregate outside RETURN/SELECT/ORDER BY
 same-pattern-node-edge-conflict    — Same variable as node and edge in one pattern
 boolean-operand-type               — Non-boolean operands to AND/OR/XOR/NOT
 orderby-aggregate-without-groupby  — Aggregate in ORDER BY without GROUP BY
-non-constant-skip-limit            — Non-constant expression in SKIP/LIMIT
 invalid-merge-pattern              — Invalid MERGE relationship pattern
 exists-no-update                   — Data-modifying statement inside EXISTS
 type-mismatch                      — Incompatible operand types in concat/arithmetic
+
+Feature-gated rules (suppressed when dialect supports the feature):
+
+CY:CL06                           — Expression-valued SKIP/LIMIT (§16.18-19)
 """
 
 from __future__ import annotations
 
 import typing as t
 
+from graphglot import features as F
 from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
-from graphglot.analysis.rules._registry import structural_rule
+from graphglot.analysis.rules._registry import analysis_rule, structural_rule
 from graphglot.analysis.rules.scope_rules import semantic_type
 from graphglot.ast import expressions as ast
 from graphglot.typing.types import GqlType, TypeKind
@@ -550,8 +556,9 @@ def _unwrap_arithmetic(val: ast.Expression) -> ast.Expression:
 
 
 # ---------------------------------------------------------------------------
-# non-constant-skip-limit — §16.18/§16.19: SKIP/LIMIT take only
-# <non-negative integer specification> (unsigned integer or $param)
+# CY:CL06 — §16.18/§16.19: SKIP/LIMIT take only
+# <non-negative integer specification> (unsigned integer or $param).
+# Feature-gated: Cypher dialects support CY:CL06 and allow expressions.
 # ---------------------------------------------------------------------------
 
 
@@ -571,9 +578,13 @@ def _is_constant_integer(val: ast.Expression) -> bool:
     return isinstance(val, ast.UnsignedNumericLiteral | ast.GeneralParameterReference)
 
 
-@structural_rule("non-constant-skip-limit")
+@analysis_rule(F.CY_CL06)
 def check_non_constant_skip_limit(ctx: AnalysisContext) -> list[SemanticDiagnostic]:
-    """Detect non-constant expressions in SKIP/LIMIT (§16.18-19)."""
+    """Detect non-constant expressions in SKIP/LIMIT (§16.18-19).
+
+    Feature-gated via CY:CL06 — Cypher dialects support expression-valued
+    SKIP/LIMIT and suppress these diagnostics.
+    """
     diagnostics: list[SemanticDiagnostic] = []
 
     for clause_type, label in (
@@ -585,7 +596,7 @@ def check_non_constant_skip_limit(ctx: AnalysisContext) -> list[SemanticDiagnost
             if not _is_constant_integer(clause.non_negative_integer_specification):
                 diagnostics.append(
                     SemanticDiagnostic(
-                        feature_id="non-constant-skip-limit",
+                        feature_id="CY:CL06",
                         message=f"{label} requires a non-negative integer literal or parameter.",
                         node=clause,
                     )
