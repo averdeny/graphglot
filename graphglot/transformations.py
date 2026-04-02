@@ -19,68 +19,96 @@ Transformation = t.Callable[[Expression], Expression]
 def with_to_next(tree: Expression) -> Expression:
     """Rewrite CypherWithStatement nodes into RETURN...NEXT chains.
 
-    Walks the tree to find ``AmbientLinearQueryStatement`` nodes whose inner
-    ``SimpleLinearQueryStatement`` contains ``CypherWithStatement`` entries.
-    Each such ALQS is rewritten into a ``StatementBlock`` with a chain of
-    ``NextStatement`` nodes — the GQL equivalent of Cypher's multi-part WITH.
+    Walks the tree to find ``AmbientLinearQueryStatement`` and
+    ``AmbientLinearDataModifyingStatementBody`` nodes whose clause lists
+    contain ``CypherWithStatement`` entries.  Each is rewritten into a
+    ``StatementBlock`` with ``NextStatement`` chains — the GQL equivalent
+    of Cypher's multi-part WITH.
 
     The transformation is safe to apply multiple times (idempotent) because
     the output contains no ``CypherWithStatement`` nodes.
     """
     for node in list(tree.dfs()):
-        if not isinstance(node, ast.AmbientLinearQueryStatement):
-            continue
+        # --- Query context: ALQS ---
+        if isinstance(node, ast.AmbientLinearQueryStatement):
+            inner = node.ambient_linear_query_statement
+            if not isinstance(
+                inner,
+                ast.AmbientLinearQueryStatement._SimpleLinearQueryStatementPrimitiveResultStatement,
+            ):
+                continue
 
-        inner = node.ambient_linear_query_statement
-        if not isinstance(
-            inner,
-            ast.AmbientLinearQueryStatement._SimpleLinearQueryStatementPrimitiveResultStatement,
-        ):
-            continue
+            slqs = inner.simple_linear_query_statement
+            if slqs is None:
+                continue
 
-        slqs = inner.simple_linear_query_statement
-        if slqs is None:
-            continue
+            stmts = slqs.list_simple_query_statement
+            if not any(isinstance(s, CypherWithStatement) for s in stmts):
+                continue
 
-        stmts = slqs.list_simple_query_statement
-        if not any(isinstance(s, CypherWithStatement) for s in stmts):
-            continue
+            block = _rewrite_alqs(stmts, inner.primitive_result_statement)
+            return _replace_in_tree(node, block, tree)
 
-        block = _rewrite_alqs(stmts, inner.primitive_result_statement)
+        # --- Data-modifying context: ALDMSB ---
+        if isinstance(node, ast.AmbientLinearDataModifyingStatementBody):
+            sldas = node.simple_linear_data_accessing_statement
+            das_stmts = sldas.list_simple_data_accessing_statement
+            if not any(isinstance(s, CypherWithStatement) for s in das_stmts):
+                continue
 
-        # Replace in the tree. The ALQS sits inside a CQE as
-        # left_composite_query_primary. The StatementBlock must replace
-        # the CQE (not the ALQS) because StatementBlock is not a
-        # LinearQueryStatement.
-        cqe_parent = node._parent  # CompositeQueryExpression
-        if cqe_parent is None:
-            # ALQS is the root (unusual) — return block directly
-            return block
+            block = _rewrite_data_modifying_body(das_stmts, node.primitive_result_statement)
 
-        grandparent = cqe_parent._parent
-        if grandparent is None:
-            # CQE is the root — return block directly
-            return block
+            # ALDMSB sits directly in StatementBlock.statement.
+            # Replace the parent StatementBlock's content.
+            parent = node._parent
+            if parent is None or not isinstance(parent, ast.StatementBlock):
+                return block
 
-        # Replace the CQE in its grandparent using __dict__ to bypass
-        # Skip validation (consistent with _construct usage).
-        key = cqe_parent._arg_key
-        if key is None:  # pragma: no cover
-            return block
-        idx = cqe_parent._index
-        if idx is not None:
-            current_list = getattr(grandparent, key)
-            current_list[idx] = block
-            block._parent = grandparent
-            block._arg_key = key
-            block._index = idx
-        else:
-            grandparent.__dict__[key] = block
-            block._parent = grandparent
-            block._arg_key = key
-            block._index = None
-        return tree
+            parent.__dict__["statement"] = block.statement
+            block.statement._parent = parent
+            block.statement._arg_key = "statement"
+            block.statement._index = None
 
+            parent.__dict__["list_next_statement"] = block.list_next_statement
+            if block.list_next_statement:
+                for i, ns in enumerate(block.list_next_statement):
+                    ns._parent = parent
+                    ns._arg_key = "list_next_statement"
+                    ns._index = i
+
+            return tree
+
+    return tree
+
+
+def _replace_in_tree(node: Expression, block: ast.StatementBlock, tree: Expression) -> Expression:
+    """Replace an ALQS (inside its CQE) with a StatementBlock in the tree."""
+    # The ALQS sits inside a CQE as left_composite_query_primary.
+    # The StatementBlock must replace the CQE (not the ALQS) because
+    # StatementBlock is not a LinearQueryStatement.
+    cqe_parent = node._parent  # CompositeQueryExpression
+    if cqe_parent is None:
+        return block
+
+    grandparent = cqe_parent._parent
+    if grandparent is None:
+        return block
+
+    key = cqe_parent._arg_key
+    if key is None:  # pragma: no cover
+        return block
+    idx = cqe_parent._index
+    if idx is not None:
+        current_list = getattr(grandparent, key)
+        current_list[idx] = block
+        block._parent = grandparent
+        block._arg_key = key
+        block._index = idx
+    else:
+        grandparent.__dict__[key] = block
+        block._parent = grandparent
+        block._arg_key = key
+        block._index = None
     return tree
 
 
@@ -374,6 +402,135 @@ def _build_next_statement(alqs: ast.AmbientLinearQueryStatement) -> ast.NextStat
     return ast.NextStatement._construct(
         yield_clause=None,
         statement=cqe,
+    )
+
+
+# ===========================================================================
+# Data-modifying body rewrite (ALDMSB with CypherWithStatement)
+# ===========================================================================
+
+
+def _build_aldmsb(
+    stmts: list[ast.SimpleDataAccessingStatement],
+    prs: ast.PrimitiveResultStatement | None,
+) -> ast.AmbientLinearDataModifyingStatementBody:
+    """Build an AmbientLinearDataModifyingStatementBody from statements and optional PRS."""
+    sldas = ast.SimpleLinearDataAccessingStatement._construct(
+        list_simple_data_accessing_statement=stmts,
+    )
+    return ast.AmbientLinearDataModifyingStatementBody._construct(
+        simple_linear_data_accessing_statement=sldas,
+        primitive_result_statement=prs,
+    )
+
+
+def _build_segment_statement(
+    stmts: list[ast.SimpleDataAccessingStatement],
+    prs: ast.PrimitiveResultStatement | None,
+) -> ast.Statement:
+    """Build the appropriate Statement wrapper for a segment.
+
+    Pure-query segments with a PRS become ALQS wrapped in CQE.
+    Segments containing data-modifying statements, or segments without
+    a trailing PRS, become AmbientLinearDataModifyingStatementBody.
+    """
+    has_dm = any(isinstance(s, ast.SimpleDataModifyingStatement) for s in stmts)
+    if prs is None or has_dm:
+        return _build_aldmsb(stmts, prs)
+    query_stmts: list[ast.SimpleQueryStatement] = stmts  # type: ignore[assignment]
+    return _wrap_in_cqe(_build_alqs(query_stmts, prs))
+
+
+def _rewrite_data_modifying_body(
+    stmts: list[ast.SimpleDataAccessingStatement],
+    original_prs: ast.PrimitiveResultStatement | None,
+) -> ast.StatementBlock:
+    """Build a StatementBlock from a data-modifying body split at WITH boundaries.
+
+    Parallel to ``_rewrite_alqs`` but handles ``SimpleDataAccessingStatement``
+    lists (which can contain both query and data-modifying statements) and
+    supports an optional trailing PRS.
+    """
+    segments: list[list[ast.SimpleDataAccessingStatement]] = []
+    withs: list[CypherWithStatement] = []
+    current: list[ast.SimpleDataAccessingStatement] = []
+
+    for stmt in stmts:
+        if isinstance(stmt, CypherWithStatement):
+            # WITH * without WHERE is a no-op in Cypher — skip it.
+            inner = stmt.return_statement_body.return_statement_body
+            is_star = isinstance(inner, ast.ReturnStatementBody._SetQuantifierAsteriskGroupByClause)
+            if is_star and stmt.where_clause is None:
+                continue
+
+            segments.append(current)
+
+            if stmt.where_clause is None:
+                withs.append(stmt)
+                current = []
+                continue
+
+            projected, alias_map = _analyze_projection(stmt)
+            losing = (
+                set()
+                if projected is None
+                else {
+                    n.binding_variable.name
+                    for n in stmt.where_clause.dfs()
+                    if isinstance(n, ast.BindingVariableReference)
+                    and n.binding_variable.name not in projected
+                }
+            )
+
+            if not losing:
+                withs.append(_strip_where(stmt))
+                current = [_make_filter_stmt(stmt.where_clause)]
+            else:
+                inlined_where = _inline_aliases(stmt.where_clause, alias_map)
+                has_obsl = stmt.order_by_and_page_statement is not None
+
+                if not has_obsl:
+                    segments[-1].append(_make_filter_stmt(inlined_where))
+                    withs.append(_strip_where(stmt))
+                    current = []
+                else:
+                    withs.append(_widen_projection(stmt, losing))
+                    segments.append([_make_filter_stmt(inlined_where)])
+                    withs.append(_narrow_projection(stmt))
+                    current = []
+        else:
+            current.append(stmt)
+
+    segments.append(current)
+
+    # All WITHs were WITH * (no-ops) — no rewriting needed, return as ALDMSB.
+    if not withs:
+        all_stmts: list[ast.SimpleDataAccessingStatement] = []
+        for seg in segments:
+            all_stmts.extend(seg)
+        body = _build_aldmsb(all_stmts, original_prs)
+        return ast.StatementBlock._construct(statement=body, list_next_statement=None)
+
+    # Build the final segment (last segment + original PRS)
+    final_stmt = _build_segment_statement(segments[-1], original_prs)
+    final_next = ast.NextStatement._construct(yield_clause=None, statement=final_stmt)
+    next_statements: list[ast.NextStatement] = [final_next]
+
+    # Intermediate segments (backwards)
+    for i in range(len(withs) - 1, 0, -1):
+        prs = _with_to_prs(withs[i])
+        seg_stmt = _build_segment_statement(segments[i], prs)
+        next_statements.append(ast.NextStatement._construct(yield_clause=None, statement=seg_stmt))
+
+    next_statements.reverse()
+
+    # Root segment
+    first_prs = _with_to_prs(withs[0])
+    root_stmt = _build_segment_statement(segments[0], first_prs)
+
+    return ast.StatementBlock._construct(
+        statement=root_stmt,
+        list_next_statement=next_statements,
     )
 
 

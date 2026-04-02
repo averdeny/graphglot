@@ -12,16 +12,11 @@ Three TCK test suites share this registry:
   test_tck_roundtrip.py  — Does parse→generate→re-parse + zero scope diagnostics?  (XFAIL_ROUNDTRIP)
   test_tck_errors.py     — Do invalid queries produce errors?  (XFAIL_ERROR)
 
-Current results (2026-04-01):
+Current results (2026-04-02):
 
   Parse:     3897/3897 = 100%   — 0 xfails
-  Roundtrip: 3243/3279 = 99.0%  — 36 xfails (scope validator false positives for Cypher)
+  Roundtrip: 3279/3279 = 100%   — 0 xfails
   Error:      540/600  = 90.0%  — 60 xfails (need semantic analysis, not syntax)
-
-The 36 roundtrip xfails are NOT parse, generator, or transformation
-failures.  They are false positives from the scope/type validator
-which applies GQL rules that do not hold for Cypher (e.g., Cypher
-allows bound variables in CREATE/MERGE, implicit GROUP BY, etc.).
 """
 
 from __future__ import annotations
@@ -64,66 +59,8 @@ XFAIL_PARSE: dict[str, XFailEntry] = {}
 _INDIVIDUAL_XFAIL_IDS: frozenset[str] = frozenset()
 
 
-# -- Roundtrip xfails: scope validator false positives for Cypher ---------------
-#
-# These are NOT transformation or generator bugs.  The scope/type validator
-# applies GQL-specific rules that are too strict for Cypher:
-#
-#   undefined-variable (36) — with_to_next doesn't fire in data-modifying
-#                              contexts (DELETE/CREATE after WITH); pattern
-#                              comprehension vars not tracked
-#
-# Total: 36 scenarios (was 62; variable-already-bound resolved by skipping
-# check_already_bound for Cypher CREATE/MERGE node bindings; Merge1__8
-# remains due to undefined-variable from WITH→MERGE scope loss).
-# The WITH...WHERE scope-loss bugs have been fixed; the Delete6__5/12 entries
-# remain because with_to_next does not fire in data-modifying contexts.
-#
-_SCOPE_FP = XFailEntry(
-    "Scope validator false positive for Cypher semantics",
-    XFailCategory.SEMANTIC_ONLY,
-)
-XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {
-    # -- undefined-variable: WITH→MERGE scope loss (with_to_next in data-modifying) --
-    "Merge1__8_Merge_should_handle_argument_properly": _SCOPE_FP,
-    # -- undefined-variable: WITH in data-modifying context / pattern comprehension --
-    "Delete5__1_Delete_node_from_a_list": _SCOPE_FP,
-    "Delete5__2_Delete_relationship_from_a_list": _SCOPE_FP,
-    "Delete5__3_Delete_nodes_from_a_map": _SCOPE_FP,
-    "Delete5__4_Delete_relationships_from_a_map": _SCOPE_FP,
-    "Delete5__5_Detach_delete_nodes_from_nested_map_list": _SCOPE_FP,
-    "Delete5__6_Delete_relationships_from_nested_map_list": _SCOPE_FP,
-    "Delete5__7_Delete_paths_from_nested_map_list": _SCOPE_FP,
-    "Delete6__6_Aggregating_in_RETURN_after_deleting_nodes_affects_the_resul": _SCOPE_FP,
-    "Delete6__7_Aggregating_in_WITH_after_deleting_nodes_affects_the_result": _SCOPE_FP,
-    "Delete6__5_Filtering_after_deleting_nodes_affects_the_result_set_but_no": _SCOPE_FP,
-    "Delete6__12_Filtering_after_deleting_relationships_affects_the_result_se": _SCOPE_FP,
-    "Delete6__13_Aggregating_in_RETURN_after_deleting_relationships_affects_t": _SCOPE_FP,
-    "Delete6__14_Aggregating_in_WITH_after_deleting_relationships_affects_the": _SCOPE_FP,
-    "Pattern2__1_Return_a_pattern_comprehension": _SCOPE_FP,
-    "Pattern2__2_Return_a_pattern_comprehension_with_label_predicate": _SCOPE_FP,
-    "Pattern2__3_Return_a_pattern_comprehension_with_bound_nodes": _SCOPE_FP,
-    "Pattern2__4_Introduce_a_new_node_variable_in_pattern_comprehension": _SCOPE_FP,
-    "Pattern2__5_Introduce_a_new_relationship_variable_in_pattern_comprehensi": _SCOPE_FP,
-    "Pattern2__6_Aggregate_on_a_pattern_comprehension": _SCOPE_FP,
-    "Pattern2__8_Use_a_pattern_comprehension_in_WITH": _SCOPE_FP,
-    "Pattern2__9_Use_a_variable_length_pattern_comprehension_in_WITH": _SCOPE_FP,
-    "Pattern2__10_Use_a_pattern_comprehension_in_RETURN": _SCOPE_FP,
-    "Pattern2__11_Use_a_pattern_comprehension_and_ORDER_BY": _SCOPE_FP,
-    "ExistentialSubquery1__4_Simple_subquery_with_WHERE_clause_not_existing_pattern": _SCOPE_FP,
-    "Path1__1_nodes_on_null_path": _SCOPE_FP,
-    "Path2__3_relationships_on_null_path": _SCOPE_FP,
-    "Unwind1__6_Creating_nodes_from_an_unwound_parameter_list": _SCOPE_FP,
-    # -- undefined-variable: list comprehension scope / data-modifying context --
-    "List12__1_Collect_and_extract_using_a_list_comprehension": _SCOPE_FP,
-    "List12__2_Collect_and_filter_using_a_list_comprehension": _SCOPE_FP,
-    "Set6__7_Aggregating_in_WITH_after_setting_a_property_on_nodes_affect": _SCOPE_FP,
-    "Set6__14_Aggregating_in_WITH_after_adding_a_label_on_nodes_affects_th": _SCOPE_FP,
-    "Set6__21_Aggregating_in_WITH_after_setting_a_property_on_relationship": _SCOPE_FP,
-    "Remove3__7_Aggregating_in_WITH_after_removing_a_property_from_nodes_aff": _SCOPE_FP,
-    "Remove3__14_Aggregating_in_WITH_after_removing_a_label_from_nodes_affect": _SCOPE_FP,
-    "Remove3__21_Aggregating_in_WITH_after_removing_a_property_from_relations": _SCOPE_FP,
-}
+# -- Roundtrip xfails (empty — all 3279 scenarios round-trip successfully) -----
+XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {}
 
 XFAIL_ERROR: dict[str, XFailEntry] = {}
 

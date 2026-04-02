@@ -2561,3 +2561,90 @@ class TestCallYieldConflicts(unittest.TestCase):
         """CALL test.proc() YIELD a, b RETURN a, b → no diagnostic."""
         result = _analyze("CALL test.proc() YIELD a, b RETURN a, b", dialect=_full)
         self.assertNotIn("variable-already-bound", _feature_ids(result))
+
+
+class TestPatternComprehensionScope(unittest.TestCase):
+    """Pattern comprehension variables should not produce undefined-variable diagnostics."""
+
+    def test_path_variable(self):
+        """[p = (n)-->() | p] — p is bound by the comprehension."""
+        result = _analyze("MATCH (n) RETURN [p = (n)-->() | p] AS list")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_node_variable(self):
+        """[(n)-[:T]->(b) | b.name] — b is bound by the comprehension."""
+        result = _analyze("MATCH (n) RETURN [(n)-[:T]->(b) | b.name] AS names")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_edge_variable(self):
+        """[(n)-[r:T]->() | r.weight] — r is bound by the comprehension."""
+        result = _analyze("MATCH (n) RETURN [(n)-[r:T]->() | r.weight] AS ws")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_with_where(self):
+        """[(a)-->(b) WHERE b.name = 'x' | b.age] — b used in WHERE and projection."""
+        result = _analyze("MATCH (a) RETURN [(a)-->(b) WHERE b.name = 'Alice' | b.age] AS ages")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_aggregation_on_comprehension(self):
+        """count([p = (n)-[:HAS]->() | p]) — aggregation wrapping pattern comprehension."""
+        result = _analyze("MATCH (n:A) RETURN count([p = (n)-[:HAS]->() | p]) AS c")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+
+class TestWithInDataModifyingScope(unittest.TestCase):
+    """CypherWithStatement in data-modifying bodies should project scope correctly."""
+
+    def test_match_with_delete(self):
+        """MATCH...WITH...DELETE — variable projected through WITH."""
+        result = _analyze(
+            "MATCH (:N)-[:T]->(n) WITH collect(n) AS friends DETACH DELETE friends[0]"
+        )
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_with_merge(self):
+        """WITH 42 AS var MERGE (c:N {var: var}) — WITH before MERGE."""
+        result = _analyze("WITH 42 AS var MERGE (c:N {var: var})")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_match_with_set_with_return(self):
+        """MATCH...SET...WITH...RETURN — WITH after SET projects scope."""
+        result = _analyze("MATCH (n:N) SET n.num = n.num + 1 WITH sum(n.num) AS s RETURN s")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_match_with_remove_with_return(self):
+        """MATCH...REMOVE...WITH...RETURN — WITH after REMOVE."""
+        result = _analyze("MATCH (n:N) REMOVE n.name WITH sum(n.num) AS s RETURN s")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_match_with_delete_with_return(self):
+        """MATCH...WITH...DELETE...WITH...RETURN — chained WITH in data-modifying."""
+        result = _analyze("MATCH (n:N) WITH n, n.num AS num DELETE n WITH sum(num) AS s RETURN s")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_list_comprehension_in_data_modifying_with(self):
+        """List comprehension inside WITH in data-modifying context."""
+        result = _analyze(
+            "MATCH (a:Label1) "
+            "WITH collect(a) AS nodes "
+            "WITH nodes, [x IN nodes | x.name] AS oldNames "
+            "UNWIND nodes AS n "
+            "SET n.name = 'new' "
+            "RETURN n.name, oldNames"
+        )
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_with_star_in_data_modifying(self):
+        """WITH * on empty scope in data-modifying context — no diagnostic."""
+        result = _analyze("MATCH () CREATE () WITH * MATCH () CREATE ()")
+        self.assertNotIn("return-star-no-variables", _feature_ids(result))
+
+    def test_with_where_in_data_modifying(self):
+        """WITH...WHERE in data-modifying context — WHERE sees post-projection scope."""
+        result = _analyze("MATCH (n:N) WITH n, n.num AS num WHERE num > 0 DELETE n RETURN num")
+        self.assertNotIn("undefined-variable", _feature_ids(result))
+
+    def test_undefined_var_still_caught(self):
+        """WITH referencing undefined variable still reports error."""
+        result = _analyze("MATCH (a) WITH b AS c RETURN c")
+        self.assertIn("undefined-variable", _feature_ids(result))

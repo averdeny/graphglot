@@ -535,6 +535,92 @@ class TestCypherWithOwnsWhere(unittest.TestCase):
         )
 
 
+class TestWithToNextDataModifying(unittest.TestCase):
+    """Test with_to_next for CypherWithStatement in data-modifying bodies."""
+
+    def setUp(self):
+        self.neo4j = Neo4j()
+
+    def _parse_one(self, query: str) -> ast.Expression:
+        trees = self.neo4j.parse(query)
+        self.assertEqual(len(trees), 1)
+        return trees[0]
+
+    def _transform(self, query: str) -> ast.Expression:
+        return with_to_next(self._parse_one(query))
+
+    def _has_cypher_with(self, tree: ast.Expression) -> bool:
+        return any(isinstance(n, CypherWithStatement) for n in tree.dfs())
+
+    def _find_block(self, tree: ast.Expression) -> ast.StatementBlock:
+        for node in tree.dfs():
+            if isinstance(node, ast.StatementBlock) and node.list_next_statement:
+                return node
+        self.fail("No StatementBlock with NextStatements found in tree")
+
+    def test_match_with_delete(self):
+        """MATCH (n) WITH n DELETE n — WITH eliminated, ALDMSB preserved."""
+        result = self._transform("MATCH (n) WITH n DELETE n")
+        self.assertFalse(self._has_cypher_with(result))
+        block = self._find_block(result)
+        self.assertEqual(len(block.list_next_statement), 1)
+
+    def test_match_with_delete_return(self):
+        """MATCH...WITH...DELETE...RETURN — full data-modifying chain."""
+        result = self._transform(
+            "MATCH (:N)-[:T]->(n) WITH collect(n) AS friends DETACH DELETE friends[0] RETURN 'done'"
+        )
+        self.assertFalse(self._has_cypher_with(result))
+
+    def test_with_merge(self):
+        """WITH 42 AS var MERGE (c:N {var: var}) — WITH before MERGE, no PRS."""
+        result = self._transform("WITH 42 AS var MERGE (c:N {var: var})")
+        self.assertFalse(self._has_cypher_with(result))
+        block = self._find_block(result)
+        # Final segment (MERGE) should be ALDMSB with no PRS
+        last = block.list_next_statement[-1].statement
+        self.assertIsInstance(last, ast.AmbientLinearDataModifyingStatementBody)
+        self.assertIsNone(last.primitive_result_statement)
+
+    def test_chained_with_data_modifying(self):
+        """MATCH...WITH...DELETE...WITH...RETURN — two WITHs, three segments."""
+        result = self._transform(
+            "MATCH (n:N) WITH n, n.num AS num DELETE n WITH sum(num) AS s RETURN s"
+        )
+        self.assertFalse(self._has_cypher_with(result))
+        block = self._find_block(result)
+        self.assertEqual(len(block.list_next_statement), 2)
+
+    def test_with_star_data_modifying(self):
+        """MATCH () CREATE () WITH * MATCH () CREATE () — WITH * passthrough."""
+        result = self._transform("MATCH () CREATE () WITH * MATCH () CREATE ()")
+        self.assertFalse(self._has_cypher_with(result))
+
+    def test_with_where_data_modifying(self):
+        """MATCH...WITH...WHERE...DELETE — WHERE handled in data-modifying context."""
+        result = self._transform("MATCH (n:N) WITH n WHERE n.num > 0 DELETE n")
+        self.assertFalse(self._has_cypher_with(result))
+        # WHERE should become a FilterStatement in the next segment
+        has_filter = any(isinstance(n, ast.FilterStatement) for n in result.dfs())
+        self.assertTrue(has_filter)
+
+    def test_no_prs_final_segment(self):
+        """MATCH (n) WITH n DELETE n — no trailing RETURN, prs=None."""
+        result = self._transform("MATCH (n) WITH n DELETE n")
+        self.assertFalse(self._has_cypher_with(result))
+        # The final segment should be ALDMSB with no PRS
+        block = self._find_block(result)
+        last = block.list_next_statement[-1].statement
+        self.assertIsInstance(last, ast.AmbientLinearDataModifyingStatementBody)
+        self.assertIsNone(last.primitive_result_statement)
+
+    def test_idempotency_data_modifying(self):
+        """Applying with_to_next twice yields the same result."""
+        first = self._transform("MATCH (n) WITH n DELETE n RETURN 'done'")
+        second = with_to_next(first)
+        self.assertEqual(first, second)
+
+
 class TestResolveAmbiguous(unittest.TestCase):
     """Test resolve_ambiguous transformation function."""
 

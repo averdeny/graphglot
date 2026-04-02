@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from graphglot.ast import expressions as ast
 from graphglot.ast.cypher import (
+    CypherPatternComprehension,
     ListComprehension,
     ListPredicateFunction,
 )
@@ -147,6 +148,9 @@ def extract_comprehension_bound_names(subtree: ast.Expression) -> set[str]:
         names.add(lc.variable.name)
     for lpf in subtree.find_all(ListPredicateFunction):
         names.add(lpf.variable.name)
+    for cpc in subtree.find_all(CypherPatternComprehension):
+        for name, _kind, _node in extract_pattern_bindings(cpc.pattern):
+            names.add(name)
     return names
 
 
