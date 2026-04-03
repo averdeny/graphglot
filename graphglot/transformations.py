@@ -11,6 +11,7 @@ import typing as t
 from graphglot import ast
 from graphglot.ast.base import Expression
 from graphglot.ast.cypher import CypherWithStatement
+from graphglot.ast.functions import Size
 from graphglot.typing.types import TypeKind
 
 Transformation = t.Callable[[Expression], Expression]
@@ -577,6 +578,8 @@ def _try_resolve(node: Expression) -> Expression | None:
         return _resolve_arithmetic(node)
     if isinstance(node, ast.ArithmeticAbsoluteValueFunction):
         return _resolve_abs(node)
+    if isinstance(node, Size):
+        return _resolve_size(node)
     return None
 
 
@@ -755,6 +758,36 @@ def _resolve_abs(node: ast.ArithmeticAbsoluteValueFunction) -> Expression | None
             duration_value_expression=dve,
         )
 
+    return None
+
+
+# -- Size -------------------------------------------------------------------
+
+
+_CARDINALITY_KINDS = {TypeKind.LIST, TypeKind.PATH, TypeKind.RECORD, TypeKind.BINDING_TABLE}
+
+
+def _resolve_size(node: Size) -> Expression | None:
+    """Resolve ``size(expr)`` → ``CARDINALITY(expr)`` or ``CHAR_LENGTH(expr)``.
+
+    GQL spec 20.22: ``CARDINALITY`` accepts list, path, record, binding table;
+    ``CHAR_LENGTH`` accepts character string.  Returns None for any other type
+    or when the argument type is unknown.
+    """
+    arg = node.arguments[0]
+    rt = arg._resolved_type
+    if rt is None or rt.is_unknown or rt.is_union:
+        return None
+    if rt.kind == TypeKind.STRING:
+        return ast.CharLengthExpression._construct(
+            character_string_value_expression=arg,
+        )
+    if rt.kind in _CARDINALITY_KINDS:
+        return ast.CardinalityExpression._construct(
+            cardinality_expression=ast.CardinalityExpression._CardinalityLeftParenCardinalityExpressionArgumentRightParen._construct(
+                cardinality_expression_argument=arg,
+            ),
+        )
     return None
 
 

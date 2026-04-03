@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import typing as t
 
+from graphglot import ast
 from graphglot.ast.cypher import (
     CreateClause,
     CypherChainedComparison,
@@ -111,10 +112,66 @@ _COMP_OP_STR = {
 }
 
 
+def _inner_predicate(expr: t.Any) -> t.Any:
+    """Unwrap a trivial ``BooleanValueExpression`` chain to its boolean primary.
+
+    The Cypher parser sometimes wraps the right operand of a predicate
+    comparison in ``BooleanValueExpression → BooleanTerm → BooleanFactor →
+    BooleanTest → BooleanPrimary``.  Unwrapping lets us inspect the actual
+    predicate type for selective parenthesization.
+
+    Returns *expr* unchanged if the chain is non-trivial (has NOT, OR, IS TRUE,
+    or multiple factors).
+    """
+    if not isinstance(expr, ast.BooleanValueExpression):
+        return expr
+    if expr.ops is not None:
+        return expr  # has OR/XOR
+    bt = expr.boolean_term
+    if len(bt.list_boolean_factor) != 1 or bt.list_boolean_factor[0].not_:
+        return expr  # multiple factors or NOT prefix
+    btest = bt.list_boolean_factor[0].boolean_test
+    if btest.truth_value is not None:
+        return expr  # IS TRUE/FALSE — needs parens as-is
+    return btest.boolean_primary
+
+
+def _needs_comparison_parens(expr: t.Any) -> bool:
+    """Check if an operand needs parens to be a valid GQL ``<comparison predicand>``.
+
+    GQL predicates (IS NULL, EXISTS, IS TRUE) are not valid comparison
+    operands.  Wrapping in parens lifts them to ``<parenthesized value
+    expression>`` which IS valid.
+
+    ``ListPredicateFunction`` with NONE/ALL already generates ``(NOT EXISTS ...)``
+    (parenthesized by ``generate_list_predicate``), so only ANY needs wrapping.
+    """
+    inner = _inner_predicate(expr)
+    if inner is not expr:
+        # Was wrapped in BooleanValueExpression — check the unwrapped type
+        return _needs_comparison_parens(inner)
+    if isinstance(
+        expr,
+        ast.NullPredicate
+        | ast.ExistsPredicate
+        | ast.BooleanTest
+        | ast.BooleanValueExpression
+        | CypherPatternPredicate,
+    ):
+        return True
+    return isinstance(expr, ListPredicateFunction) and expr.kind == ListPredicateFunction.Kind.ANY
+
+
 @generates(CypherPredicateComparison)
 def generate_predicate_comparison(gen: Generator, expr: CypherPredicateComparison) -> Fragment:
-    """``none(...) = true`` → ``(NOT EXISTS {...}) = true``."""
-    return gen.seq(gen.dispatch(expr.left), _COMP_OP_STR[expr.op], gen.dispatch(expr.right))
+    """``none(...) = true`` → ``(NOT EXISTS {...}) = TRUE``."""
+    left = gen.dispatch(expr.left)
+    right = gen.dispatch(expr.right)
+    if _needs_comparison_parens(expr.left):
+        left = parens(left)
+    if _needs_comparison_parens(expr.right):
+        right = parens(right)
+    return gen.seq(left, _COMP_OP_STR[expr.op], right)
 
 
 @generates(CreateClause)

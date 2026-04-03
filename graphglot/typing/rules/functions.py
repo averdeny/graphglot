@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from graphglot.ast import expressions as ast
+from graphglot.ast import expressions as ast, functions as f
 from graphglot.typing.rules import type_rule
 from graphglot.typing.types import GqlType
 
@@ -189,6 +189,13 @@ def type_duration_function(annotator, expr):
 def type_element_id_function(annotator, expr):
     annotator.annotate_children(expr)
     return GqlType.string()
+
+
+@type_rule(f.Size)
+def type_size_function(annotator, expr):
+    """size(expr) always returns integer; argument type drives resolution."""
+    annotator.annotate_children(expr)
+    return GqlType.integer()
 
 
 @type_rule(ast.ElementsFunction)

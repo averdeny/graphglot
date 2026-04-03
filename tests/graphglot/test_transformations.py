@@ -843,6 +843,12 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         trees = self.neo4j.parse(query)
         return self.gql.generate(trees[0])
 
+    def _transpile(self, query: str) -> str:
+        """Parse with Neo4j, transform, generate with FullGQL."""
+        trees = self.neo4j.parse(query)
+        transformed = self.neo4j.transform(trees)
+        return self.gql.generate(transformed[0])
+
     def _cypher(self, query: str) -> str:
         """Parse and roundtrip with Neo4j."""
         trees = self.neo4j.parse(query)
@@ -942,9 +948,9 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         )
 
     def test_null_predicate_comparison_generates(self):
-        """false = true IS NULL → FALSE = TRUE IS NULL."""
+        """false = true IS NULL → FALSE = (TRUE IS NULL)."""
         result = self._gql("RETURN false = true IS NULL AS r")
-        self.assertEqual(result, "RETURN FALSE = TRUE IS NULL AS r")
+        self.assertEqual(result, "RETURN FALSE = (TRUE IS NULL) AS r")
 
     def test_predicate_comparison_roundtrip(self):
         """Cypher roundtrip preserves syntax."""
@@ -994,3 +1000,24 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     def test_duration_roundtrip(self):
         result = self._cypher("RETURN duration('P1Y2M') AS x")
         self.assertEqual(result, "RETURN duration('P1Y2M') AS x")
+
+    # ------------------------------------------------------------------
+    # Size resolution (via resolve_ambiguous)
+    # ------------------------------------------------------------------
+
+    def test_size_list_resolves_to_cardinality(self):
+        """size([1,2,3]) → CARDINALITY([1, 2, 3]) after type resolution."""
+        result = self._transpile("RETURN size([1, 2, 3]) AS n")
+        self.assertEqual(result, "RETURN CARDINALITY([1, 2, 3]) AS n")
+
+    def test_size_string_resolves_to_char_length(self):
+        """size('hello') → CHAR_LENGTH('hello') after type resolution."""
+        result = self._transpile("RETURN size('hello') AS n")
+        self.assertEqual(result, "RETURN CHAR_LENGTH('hello') AS n")
+
+    def test_size_unknown_type_not_resolved(self):
+        """size(n.friends) stays unresolved when argument type is unknown."""
+        trees = self.neo4j.parse("MATCH (n) RETURN size(n.friends) AS s")
+        transformed = self.neo4j.transform(trees)
+        with self.assertRaises(NotImplementedError):
+            self.gql.generate(transformed[0])

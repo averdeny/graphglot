@@ -38,6 +38,24 @@ class TestDialectTranspile(unittest.TestCase):
         result = dialect.transpile("MATCH (n) RETURN n")
         self.assertIsInstance(result, list)
 
+    def test_predicate_comparison_reparses(self):
+        """Predicate comparisons must produce re-parseable GQL output.
+
+        GQL predicates (IS NULL, EXISTS, IS TRUE) are not valid
+        <comparison predicand>; the generator must parenthesize them.
+        """
+        neo4j = Dialect.get_or_raise("neo4j")
+        gql = Dialect.get_or_raise("fullgql")
+        for query in [
+            "RETURN false = true IS NULL AS r",
+            "RETURN none(x IN [1] WHERE x = 1) = true AS r",
+            "RETURN any(x IN [1,2] WHERE x > 0) = none(x IN [1,2] WHERE x > 0) AS r",
+            "RETURN true = any(x IN [1] WHERE x = 1) AS r",
+        ]:
+            trees = neo4j.parse(query)
+            generated = gql.generate(trees[0])
+            gql.validate_output([generated])
+
 
 class TestTranspileCLI(unittest.TestCase):
     """Tests for the `gg transpile` CLI command."""
