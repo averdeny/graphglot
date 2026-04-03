@@ -117,15 +117,35 @@ class TestTemporalAndDurationFunctions(unittest.TestCase):
     def setUp(self):
         self.helper = ParserTestHelper()
 
-    def test_localtime_function(self):
-        """LocaltimeFunction parses with no arguments (optional parameters)."""
-        expr = self.helper.parse_single("", ast.LocaltimeFunction)
+    def test_localtime_function_bare(self):
+        """LocaltimeFunction parses LOCAL_TIME with no parentheses."""
+        expr = self.helper.parse_single("LOCAL_TIME", ast.LocaltimeFunction)
         self.assertIsInstance(expr, ast.LocaltimeFunction)
         self.assertIsNone(expr.time_function_parameters)
 
+    def test_localtime_function_empty_parens(self):
+        """LocaltimeFunction parses LOCAL_TIME() with empty parentheses."""
+        expr = self.helper.parse_single("LOCAL_TIME()", ast.LocaltimeFunction)
+        self.assertIsInstance(expr, ast.LocaltimeFunction)
+        self.assertIsNone(expr.time_function_parameters)
+
+    def test_localtime_function_with_params(self):
+        """LocaltimeFunction parses LOCAL_TIME with string parameter."""
+        expr = self.helper.parse_single("LOCAL_TIME('12:31:14')", ast.LocaltimeFunction)
+        self.assertIsInstance(expr, ast.LocaltimeFunction)
+        self.assertIsNotNone(expr.time_function_parameters)
+
     def test_localdatetime_function(self):
-        """LocaldatetimeFunction should parse LOCAL_TIMESTAMP or LOCAL_DATETIME(...)."""
+        """LocaldatetimeFunction should parse LOCAL_TIMESTAMP."""
         expr = self.helper.parse_single("LOCAL_TIMESTAMP", ast.LocaldatetimeFunction)
+        self.assertIsInstance(expr, ast.LocaldatetimeFunction)
+
+    def test_localdatetime_function_with_params(self):
+        """LocaldatetimeFunction should parse LOCAL_DATETIME(...)."""
+        expr = self.helper.parse_single(
+            "LOCAL_DATETIME('1984-10-11T12:31:14')",
+            ast.LocaldatetimeFunction,
+        )
         self.assertIsInstance(expr, ast.LocaldatetimeFunction)
 
     def test_duration_absolute_value_function(self):

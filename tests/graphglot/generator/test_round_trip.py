@@ -990,6 +990,25 @@ TEMPORAL_FUNCTION_QUERIES = [
     "RETURN CURRENT_DATE",
     "RETURN CURRENT_TIME",
     "RETURN CURRENT_TIMESTAMP",
+    # Explicit constructor forms with string params
+    "RETURN DATE('1984-10-11')",
+    "RETURN ZONED_TIME('12:31:14+01:00')",
+    "RETURN ZONED_DATETIME('1984-10-11T12:31:14+01:00')",
+    "RETURN LOCAL_DATETIME('1984-10-11T12:31:14')",
+    "RETURN LOCAL_TIME('12:31:14')",
+    # Record constructor forms (map syntax — the TCK blocker)
+    "RETURN DATE({`year` : 1984, `month` : 10, `day` : 11})",
+    "RETURN ZONED_TIME({`hour` : 12, `minute` : 31, `second` : 14, timezone : '+01:00'})",
+    "RETURN ZONED_DATETIME({`year` : 1984, `month` : 10, `day` : 11, timezone : '+01:00'})",
+    "RETURN LOCAL_DATETIME({`year` : 1984, `month` : 10, `day` : 11, `hour` : 12})",
+    "RETURN LOCAL_TIME({`hour` : 12, `minute` : 31, `second` : 14})",
+    # No-param forms
+    "RETURN ZONED_TIME()",
+    "RETURN ZONED_DATETIME()",
+    "RETURN LOCAL_DATETIME()",
+    "RETURN LOCAL_TIME()",
+    # Bare LOCAL_TIME (no parens — spec 20.27 allows this unique form)
+    "RETURN LOCAL_TIME",
 ]
 
 INTERVAL_QUERIES = [

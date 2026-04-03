@@ -829,15 +829,15 @@ def generate_localdatetime_function(gen: Generator, expr: ast.LocaldatetimeFunct
         return Fragment("LOCAL_TIMESTAMP")
     inner = expr.localdatetime_function
     if inner.datetime_function_parameters:
-        return Fragment(f"LOCAL DATETIME({gen.dispatch(inner.datetime_function_parameters)})")
-    return Fragment("LOCAL DATETIME()")
+        return Fragment(f"LOCAL_DATETIME({gen.dispatch(inner.datetime_function_parameters)})")
+    return Fragment("LOCAL_DATETIME()")
 
 
 @generates(ast.LocaltimeFunction)
 def generate_localtime_function(gen: Generator, expr: ast.LocaltimeFunction) -> Fragment:
     if expr.time_function_parameters:
-        return Fragment(f"LOCAL TIME({gen.dispatch(expr.time_function_parameters)})")
-    return Fragment("LOCAL TIME()")
+        return Fragment(f"LOCAL_TIME({gen.dispatch(expr.time_function_parameters)})")
+    return Fragment("LOCAL_TIME()")
 
 
 @generates(ast.DurationFunction)

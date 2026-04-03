@@ -4859,9 +4859,11 @@ def parse_time_function(parser: Parser) -> ast.TimeFunction:
     ) -> ast.TimeFunction._ZonedTimeLeftParenTimeFunctionParametersRightParen:
         (
             _,
+            _,
             time_function_parameters,
             _,
         ) = parser.seq(
+            TokenType.ZONED_TIME,
             TokenType.LEFT_PAREN,
             parser.opt(parser.get_parser(ast.TimeFunctionParameters)),
             TokenType.RIGHT_PAREN,
@@ -4882,11 +4884,16 @@ def parse_time_function(parser: Parser) -> ast.TimeFunction:
 
 @parses(ast.LocaltimeFunction)
 def parse_localtime_function(parser: Parser) -> ast.LocaltimeFunction:
-    (time_function_parameters,) = parser.seq(
+    # GQL spec 20.27: LOCAL_TIME [ ( [ <time function parameters> ] ) ]
+    # The entire parenthesized group is optional (unique among temporal functions).
+    parser._expect(TokenType.LOCAL_TIME)
+    result = parser.try_seq(
+        TokenType.LEFT_PAREN,
         parser.opt(parser.get_parser(ast.TimeFunctionParameters)),
+        TokenType.RIGHT_PAREN,
     )
     return ast.LocaltimeFunction(
-        time_function_parameters=time_function_parameters,
+        time_function_parameters=result[1] if result else None,
     )
 
 
@@ -4901,9 +4908,11 @@ def parse_datetime_function(parser: Parser) -> ast.DatetimeFunction:
     ) -> ast.DatetimeFunction._ZonedDatetimeLeftParenDatetimeFunctionParametersRightParen:
         (
             _,
+            _,
             datetime_function_parameters,
             _,
         ) = parser.seq(
+            TokenType.ZONED_DATETIME,
             TokenType.LEFT_PAREN,
             parser.opt(parser.get_parser(ast.DatetimeFunctionParameters)),
             TokenType.RIGHT_PAREN,
@@ -4933,9 +4942,11 @@ def parse_localdatetime_function(parser: Parser) -> ast.LocaldatetimeFunction:
     ) -> ast.LocaldatetimeFunction._LocalDatetimeLeftParenDatetimeFunctionParametersRightParen:
         (
             _,
+            _,
             datetime_function_parameters,
             _,
         ) = parser.seq(
+            TokenType.LOCAL_DATETIME,
             TokenType.LEFT_PAREN,
             parser.opt(parser.get_parser(ast.DatetimeFunctionParameters)),
             TokenType.RIGHT_PAREN,

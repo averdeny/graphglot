@@ -957,11 +957,11 @@ class TestCypherToGqlGeneration(unittest.TestCase):
 
     def test_localdatetime_no_arg_generates_local_datetime(self):
         result = self._gql("RETURN localdatetime() AS x")
-        self.assertEqual(result, "RETURN LOCAL DATETIME() AS x")
+        self.assertEqual(result, "RETURN LOCAL_DATETIME() AS x")
 
     def test_localdatetime_with_arg_generates_local_datetime(self):
         result = self._gql("RETURN localdatetime('2024-01-15T10:30:00') AS x")
-        self.assertEqual(result, "RETURN LOCAL DATETIME('2024-01-15T10:30:00') AS x")
+        self.assertEqual(result, "RETURN LOCAL_DATETIME('2024-01-15T10:30:00') AS x")
 
     def test_localdatetime_roundtrip(self):
         result = self._cypher("RETURN localdatetime() AS x")
@@ -973,11 +973,11 @@ class TestCypherToGqlGeneration(unittest.TestCase):
 
     def test_localtime_no_arg_generates_local_time(self):
         result = self._gql("RETURN localtime() AS x")
-        self.assertEqual(result, "RETURN LOCAL TIME() AS x")
+        self.assertEqual(result, "RETURN LOCAL_TIME() AS x")
 
     def test_localtime_with_arg_generates_local_time(self):
         result = self._gql("RETURN localtime('10:30:00') AS x")
-        self.assertEqual(result, "RETURN LOCAL TIME('10:30:00') AS x")
+        self.assertEqual(result, "RETURN LOCAL_TIME('10:30:00') AS x")
 
     def test_localtime_roundtrip(self):
         result = self._cypher("RETURN localtime() AS x")
