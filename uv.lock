@@ -290,7 +290,7 @@ wheels = [
 
 [[package]]
 name = "graphglot"
-version = "0.8.3"
+version = "0.8.4"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

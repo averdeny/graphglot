@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.8.4 (2026-04-03)
+
+### Bug Fixes
+
+- Resolve all 36 TCK roundtrip xfails (100% roundtrip coverage)
+  ([`77d7032`](https://github.com/averdeny/graphglot/commit/77d70323e2a71d984647c41337dc0aa9f0196cb9))
+
+
 ## v0.8.3 (2026-04-01)
 
 ### Bug Fixes
