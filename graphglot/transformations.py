@@ -599,6 +599,22 @@ def implicit_to_explicit_group_by(tree: Expression) -> Expression:
     return tree
 
 
+def _find_bare_binding_variable(expr: Expression) -> ast.BindingVariableReference | None:
+    """Return the BindingVariableReference if *expr* is a trivial wrapper around one.
+
+    Cypher parses bare variables like ``a`` as
+    ``ArithmeticValueExpression > ArithmeticTerm > ArithmeticFactor > BVR``.
+    If the entire expression generates exactly the variable name, it is a
+    bare binding variable reference — no alias needed (§14.11 rule 8a).
+    """
+    for child in expr.dfs():
+        if isinstance(child, ast.BindingVariableReference):
+            if expr.to_gql() == child.binding_variable.name:
+                return child
+            break
+    return None
+
+
 def _inject_group_by_clause(body: _ReturnItemsWithGroupBy) -> None:
     """Mutate *body* to include a GROUP BY clause for non-aggregate return items."""
     grouping_elements: list[ast.BindingVariableReference] = []
@@ -609,11 +625,17 @@ def _inject_group_by_clause(body: _ReturnItemsWithGroupBy) -> None:
         if alias is not None:
             name = alias.identifier.name
         else:
-            # Generate alias from expression text (e.g., n.division → `n.division`)
-            name = item.aggregating_value_expression.to_gql()
-            item.__dict__["return_item_alias"] = ast.ReturnItemAlias._construct(
-                identifier=ast.Identifier._construct(name=name),
-            )
+            expr = item.aggregating_value_expression
+            bvr = _find_bare_binding_variable(expr)
+            if bvr is not None:
+                # Bare variables already have an implicit alias (§14.11 rule 8a)
+                name = bvr.binding_variable.name
+            else:
+                # Non-BVR expressions require an explicit alias (§14.11 rule 8b)
+                name = expr.to_gql()
+                item.__dict__["return_item_alias"] = ast.ReturnItemAlias._construct(
+                    identifier=ast.Identifier._construct(name=name),
+                )
         grouping_elements.append(
             ast.BindingVariableReference._construct(
                 binding_variable=ast.Identifier._construct(name=name),

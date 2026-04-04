@@ -228,6 +228,22 @@ class TestGQ17(unittest.TestCase):
         result = _analyze("MATCH (n)-[e]->(m) RETURN COUNT(n), COUNT(m) GROUP BY n", _NoGQ17())
         self.assertTrue(result.ok)
 
+    def test_aliased_property_in_group_by(self):
+        """Aliased property whose alias is a grouping element — no diagnostic."""
+        result = _analyze(
+            "MATCH (n) RETURN n.active AS `n.active`, COUNT(*) GROUP BY `n.active`",
+            _NoGQ17(),
+        )
+        self.assertTrue(result.ok)
+
+    def test_unaliased_bvr_in_group_by(self):
+        """Unaliased binding variable in GROUP BY — implicit alias per §14.11 rule 8a."""
+        result = _analyze(
+            "MATCH (n) RETURN n, COUNT(*) GROUP BY n",
+            _NoGQ17(),
+        )
+        self.assertTrue(result.ok)
+
 
 # ===========================================================================
 # GA09 — Comparison of paths

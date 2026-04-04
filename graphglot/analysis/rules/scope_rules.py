@@ -255,6 +255,11 @@ def check_elementwise_group_variable_ops(ctx: AnalysisContext) -> list[SemanticD
 
         # Check each return item for non-grouped variable references outside aggregates
         for item in ret_body.return_item_list.list_return_item:
+            # Per §14.11 rule 10a.i, a return item whose alias name is in the
+            # GROUP BY is a grouping item — no element-wise check needed.
+            alias = item.return_item_alias
+            if alias is not None and alias.identifier.name in grouping_vars:
+                continue
             expr = item.aggregating_value_expression
             flagged = _non_grouped_vars_outside_aggregates(expr, grouping_vars)
             if flagged:

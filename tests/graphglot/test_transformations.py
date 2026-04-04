@@ -1081,6 +1081,22 @@ class TestCypherToGqlGeneration(unittest.TestCase):
             "MATCH (n) RETURN n.name AS name, COUNT(*) AS c GROUP BY name",
         )
 
+    def test_group_by_bare_variable_no_alias(self):
+        """Bare variable needs no alias — GROUP BY references it directly."""
+        result = self._transpile("MATCH (a) RETURN a, count(*) ORDER BY count(*)")
+        self.assertEqual(
+            result,
+            "MATCH (a) RETURN a, COUNT(*) GROUP BY a ORDER BY COUNT(*)",
+        )
+
+    def test_group_by_bare_variable_without_order_by(self):
+        """Bare variable without ORDER BY — no alias injected."""
+        result = self._transpile("MATCH (a) RETURN a, count(*) AS c")
+        self.assertEqual(
+            result,
+            "MATCH (a) RETURN a, COUNT(*) AS c GROUP BY a",
+        )
+
     def test_group_by_suppressed_in_cypher(self):
         """Cypher roundtrip does NOT emit GROUP BY (Neo4j lacks GQ15)."""
         trees = self.neo4j.parse("MATCH (n) RETURN n.name AS name, count(*) AS c")
