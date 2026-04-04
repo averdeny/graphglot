@@ -536,6 +536,97 @@ def _rewrite_data_modifying_body(
 
 
 # ===========================================================================
+# implicit_to_explicit_group_by — make Cypher's implicit grouping explicit
+# ===========================================================================
+
+_ReturnItemsWithGroupBy = ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause
+_ReturnWithOrderBy = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement
+
+
+def implicit_to_explicit_group_by(tree: Expression) -> Expression:
+    """Make Cypher's implicit grouping explicit by adding GROUP BY.
+
+    In Cypher, ``RETURN n.division, MAX(n.age)`` implicitly groups by
+    ``n.division``.  GQL requires an explicit ``GROUP BY`` clause.
+
+    Two cases:
+
+    1. Mixed aggregate + non-aggregate return items → GROUP BY the
+       non-aggregate items (the implicit grouping keys).
+    2. All-aggregate return items with ORDER BY containing aggregates →
+       GROUP BY () (empty grouping set, required by GQL §14.10 SR 4).
+
+    The generator suppresses GROUP BY when the target dialect does not
+    support feature GQ15.
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.PrimitiveResultStatement):
+            continue
+        inner = node.primitive_result_statement
+        if not isinstance(inner, _ReturnWithOrderBy):
+            continue
+        body = inner.return_statement.return_statement_body.return_statement_body
+        if not isinstance(body, _ReturnItemsWithGroupBy) or body.group_by_clause is not None:
+            continue
+
+        has_agg = False
+        has_non_agg = False
+        for item in body.return_item_list.list_return_item:
+            if any(isinstance(n, ast.AggregateFunction) for n in item.dfs()):
+                has_agg = True
+            else:
+                has_non_agg = True
+
+        if not has_agg:
+            continue
+
+        if has_non_agg:
+            # Case 1: mixed → GROUP BY non-aggregate items
+            _inject_group_by_clause(body)
+        else:
+            # Case 2: all aggregates — only needed if ORDER BY has aggregates
+            # (§14.10 SR 4 requires GROUP BY when ORDER BY uses aggregates)
+            obps = inner.order_by_and_page_statement
+            if obps is None:
+                continue
+            if not any(isinstance(n, ast.AggregateFunction) for n in obps.dfs()):
+                continue
+            body.__dict__["group_by_clause"] = ast.GroupByClause._construct(
+                grouping_element_list=ast.GroupingElementList._construct(
+                    grouping_element_list=ast.EmptyGroupingSet._construct(),
+                ),
+            )
+    return tree
+
+
+def _inject_group_by_clause(body: _ReturnItemsWithGroupBy) -> None:
+    """Mutate *body* to include a GROUP BY clause for non-aggregate return items."""
+    grouping_elements: list[ast.BindingVariableReference] = []
+    for item in body.return_item_list.list_return_item:
+        if any(isinstance(n, ast.AggregateFunction) for n in item.dfs()):
+            continue
+        alias = item.return_item_alias
+        if alias is not None:
+            name = alias.identifier.name
+        else:
+            # Generate alias from expression text (e.g., n.division → `n.division`)
+            name = item.aggregating_value_expression.to_gql()
+            item.__dict__["return_item_alias"] = ast.ReturnItemAlias._construct(
+                identifier=ast.Identifier._construct(name=name),
+            )
+        grouping_elements.append(
+            ast.BindingVariableReference._construct(
+                binding_variable=ast.Identifier._construct(name=name),
+            )
+        )
+    body.__dict__["group_by_clause"] = ast.GroupByClause._construct(
+        grouping_element_list=ast.GroupingElementList._construct(
+            grouping_element_list=grouping_elements,
+        ),
+    )
+
+
+# ===========================================================================
 # resolve_ambiguous — replace AmbiguousValueExpression with concrete GQL types
 # ===========================================================================
 

@@ -19,6 +19,7 @@ from graphglot.ast.cypher import (
     CypherChainedComparison,
     CypherPatternPredicate,
     CypherPredicateComparison,
+    CypherSimpleCase,
     ListPredicateFunction,
     StringMatchPredicate,
 )
@@ -172,6 +173,27 @@ def generate_predicate_comparison(gen: Generator, expr: CypherPredicateCompariso
     if _needs_comparison_parens(expr.right):
         right = parens(right)
     return gen.seq(left, _COMP_OP_STR[expr.op], right)
+
+
+@generates(CypherSimpleCase)
+def generate_cypher_simple_case(gen: Generator, expr: CypherSimpleCase) -> Fragment:
+    """Rewrite to searched CASE: ``CASE x WHEN v THEN r`` → ``CASE WHEN x = v THEN r``.
+
+    GQL restricts ``<case operand>`` to NPVEP (spec 20.7), which excludes
+    signed literals and arithmetic.  Searched CASE avoids this restriction.
+    """
+    case_op = gen.dispatch(expr.case_operand)
+    parts: list[str | Fragment] = ["CASE"]
+    for clause in expr.when_clauses:
+        conditions = gen.join(
+            [gen.seq(case_op, "=", gen.dispatch(op)) for op in clause.operands],
+            sep=" OR ",
+        )
+        parts.append(gen.seq("WHEN", conditions, "THEN", gen.dispatch(clause.result)))
+    if expr.else_clause:
+        parts.append(gen.dispatch(expr.else_clause))
+    parts.append("END")
+    return gen.seq(*parts)
 
 
 @generates(CreateClause)

@@ -38,6 +38,29 @@ class TestDialectTranspile(unittest.TestCase):
         result = dialect.transpile("MATCH (n) RETURN n")
         self.assertIsInstance(result, list)
 
+    def test_simple_case_reparses(self):
+        """CypherSimpleCase rewritten to searched CASE must re-parse."""
+        neo4j = Dialect.get_or_raise("neo4j")
+        gql = Dialect.get_or_raise("fullgql")
+        trees = neo4j.parse(
+            "RETURN CASE -10 WHEN -10 THEN 'neg' WHEN 0 THEN 'zero' ELSE 'other' END AS r"
+        )
+        generated = gql.generate(trees[0])
+        gql.validate_output([generated])
+
+    def test_group_by_injection_reparses(self):
+        """Injected GROUP BY must produce re-parseable GQL."""
+        neo4j = Dialect.get_or_raise("neo4j")
+        gql = Dialect.get_or_raise("fullgql")
+        for query in [
+            "MATCH (n) RETURN n.div AS d, max(n.age) AS m ORDER BY max(n.age)",
+            "MATCH (n) RETURN avg(n.age) AS a ORDER BY avg(n.age)",
+        ]:
+            trees = neo4j.parse(query)
+            transformed = neo4j.transform(trees)
+            generated = gql.generate(transformed[0])
+            gql.validate_output([generated])
+
     def test_predicate_comparison_reparses(self):
         """Predicate comparisons must produce re-parseable GQL output.
 

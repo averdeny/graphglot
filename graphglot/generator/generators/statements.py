@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typing as t
 
-from graphglot import ast
+from graphglot import ast, features as F
 from graphglot.generator.fragment import Fragment
 from graphglot.generator.registry import generates
 
@@ -42,15 +42,22 @@ def generate_return_statement(gen: Generator, expr: ast.ReturnStatement) -> Frag
     return gen.seq(gen.keyword("RETURN"), gen.dispatch(expr.return_statement_body))
 
 
+def _should_emit_group_by(gen: Generator) -> bool:
+    """Check if the target dialect supports GROUP BY (feature GQ15)."""
+    dialect = gen.dialect
+    return dialect is None or F.GQ15 in dialect.SUPPORTED_FEATURES
+
+
 @generates(ast.ReturnStatementBody)
 def generate_return_statement_body(gen: Generator, expr: ast.ReturnStatementBody) -> Fragment:
     inner = expr.return_statement_body
+    emit_gb = _should_emit_group_by(gen)
     if isinstance(inner, ast.ReturnStatementBody._SetQuantifierAsteriskGroupByClause):
         parts: list[str | Fragment] = []
         if inner.set_quantifier:
             parts.append(gen.dispatch(inner.set_quantifier))
         parts.append("*")
-        if inner.group_by_clause:
+        if emit_gb and inner.group_by_clause:
             parts.append(gen.dispatch(inner.group_by_clause))
         return gen.seq(*parts)
     elif isinstance(inner, ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause):
@@ -58,7 +65,7 @@ def generate_return_statement_body(gen: Generator, expr: ast.ReturnStatementBody
         if inner.set_quantifier:
             parts.append(gen.dispatch(inner.set_quantifier))
         parts.append(gen.dispatch(inner.return_item_list))
-        if inner.group_by_clause:
+        if emit_gb and inner.group_by_clause:
             parts.append(gen.dispatch(inner.group_by_clause))
         return gen.seq(*parts)
     elif isinstance(inner, ast.ReturnStatementBody._NoBindings):

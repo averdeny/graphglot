@@ -1021,3 +1021,69 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         transformed = self.neo4j.transform(trees)
         with self.assertRaises(NotImplementedError):
             self.gql.generate(transformed[0])
+
+    # ------------------------------------------------------------------
+    # CypherSimpleCase → searched CASE
+    # ------------------------------------------------------------------
+
+    def test_simple_case_generates_searched(self):
+        """CASE -10 WHEN -10 THEN 'neg' → CASE WHEN -10 = -10 THEN 'neg'."""
+        result = self._gql("RETURN CASE -10 WHEN -10 THEN 'neg' ELSE 'other' END AS r")
+        self.assertEqual(
+            result,
+            "RETURN CASE WHEN -10 = -10 THEN 'neg' ELSE 'other' END AS r",
+        )
+
+    def test_simple_case_multi_operand(self):
+        """CASE -1 WHEN -1, 0 THEN 'low' → CASE WHEN -1 = -1 OR -1 = 0."""
+        result = self._gql("RETURN CASE -1 WHEN -1, 0 THEN 'low' ELSE 'high' END AS r")
+        self.assertEqual(
+            result,
+            "RETURN CASE WHEN -1 = -1 OR -1 = 0 THEN 'low' ELSE 'high' END AS r",
+        )
+
+    # ------------------------------------------------------------------
+    # GROUP BY injection
+    # ------------------------------------------------------------------
+
+    def test_group_by_injected_with_alias(self):
+        """ORDER BY aggregate with aliased non-agg items gets GROUP BY."""
+        result = self._transpile(
+            "MATCH (n) RETURN n.division AS div, max(n.age) AS m ORDER BY max(n.age)"
+        )
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN n.division AS div, MAX(n.age) AS m GROUP BY div ORDER BY MAX(n.age)",
+        )
+
+    def test_group_by_injected_without_alias(self):
+        """ORDER BY aggregate with unaliased non-agg items gets alias + GROUP BY."""
+        result = self._transpile("MATCH (n) RETURN n.division, max(n.age) ORDER BY max(n.age)")
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN n.division AS `n.division`, MAX(n.age)"
+            " GROUP BY `n.division` ORDER BY MAX(n.age)",
+        )
+
+    def test_group_by_empty_grouping_set(self):
+        """All-aggregate RETURN with ORDER BY aggregate gets GROUP BY ()."""
+        result = self._transpile("MATCH (n) RETURN avg(n.age) AS avgAge ORDER BY avg(n.age)")
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN AVG(n.age) AS avgAge GROUP BY () ORDER BY AVG(n.age)",
+        )
+
+    def test_group_by_without_order_by(self):
+        """Mixed agg/non-agg RETURN without ORDER BY also gets GROUP BY."""
+        result = self._transpile("MATCH (n) RETURN n.name AS name, count(*) AS c")
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN n.name AS name, COUNT(*) AS c GROUP BY name",
+        )
+
+    def test_group_by_suppressed_in_cypher(self):
+        """Cypher roundtrip does NOT emit GROUP BY (Neo4j lacks GQ15)."""
+        trees = self.neo4j.parse("MATCH (n) RETURN n.name AS name, count(*) AS c")
+        transformed = self.neo4j.transform(trees)
+        result = self.neo4j.generate(transformed[0])
+        self.assertNotIn("GROUP BY", result)
