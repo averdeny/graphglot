@@ -198,6 +198,13 @@ def type_size_function(annotator, expr):
     return GqlType.integer()
 
 
+@type_rule(f.Keys)
+def type_keys_function(annotator, expr):
+    """keys(expr) always returns LIST<STRING>."""
+    annotator.annotate_children(expr)
+    return GqlType.list_(GqlType.string())
+
+
 @type_rule(ast.ElementsFunction)
 def type_elements_function(annotator, expr):
     annotator.annotate_children(expr)

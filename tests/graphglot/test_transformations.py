@@ -1087,3 +1087,26 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         transformed = self.neo4j.transform(trees)
         result = self.neo4j.generate(transformed[0])
         self.assertNotIn("GROUP BY", result)
+
+    # ------------------------------------------------------------------
+    # NEXT scope type propagation
+    # ------------------------------------------------------------------
+
+    def test_size_across_next_boundary(self):
+        """size(nodes) resolves after WITH collect(a) AS nodes."""
+        result = self._transpile("MATCH (a) WITH collect(a) AS nodes RETURN size(nodes) AS s")
+        self.assertIn("CARDINALITY", result)
+
+    def test_size_keys_type_resolved(self):
+        """size(keys(n)) — keys() types as LIST<STRING>, so size resolves to CARDINALITY.
+
+        Generation still fails because keys() has no GQL equivalent, but the
+        Size node IS resolved (not the blocker).
+        """
+        from graphglot.ast.functions import Size
+
+        trees = self.neo4j.parse("MATCH (n) RETURN size(keys(n)) AS s")
+        transformed = self.neo4j.transform(trees)
+        # Size should be resolved (no Size nodes left in tree)
+        size_nodes = list(transformed[0].find_all(Size))
+        self.assertEqual(len(size_nodes), 0, "Size should be resolved to CardinalityExpression")

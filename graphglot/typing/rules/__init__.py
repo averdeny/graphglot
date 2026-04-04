@@ -32,6 +32,7 @@ def _ensure_rules_loaded() -> None:
         literals,
         operators,
         resolution,
+        statements,
         variables,
     )
 
