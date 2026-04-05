@@ -44,7 +44,11 @@ def generate_chained_comparison(gen: Generator, expr: CypherChainedComparison) -
 
 @generates(StringMatchPredicate)
 def generate_string_match_predicate(gen: Generator, expr: StringMatchPredicate) -> Fragment:
-    """``x STARTS WITH 'A'`` → ``LEFT(x, CHAR_LENGTH('A')) = 'A'``.
+    """``x STARTS WITH 'A'`` → ``LEFT(x, COALESCE(CHAR_LENGTH('A'), 0)) = 'A'``.
+
+    COALESCE guards against NULL: ``CHAR_LENGTH(NULL)`` returns NULL, and
+    ``LEFT(x, NULL)`` crashes on some databases.  ``COALESCE(..., 0)`` turns
+    it into ``LEFT(x, 0) = NULL`` → NULL (correct three-valued logic).
 
     CONTAINS has no GQL equivalent — raises NotImplementedError.
     """
@@ -57,7 +61,7 @@ def generate_string_match_predicate(gen: Generator, expr: StringMatchPredicate) 
     rhs = gen.dispatch(expr.rhs)
     func = "LEFT" if expr.kind == StringMatchPredicate.MatchKind.STARTS_WITH else "RIGHT"
     return gen.seq(
-        Fragment(f"{func}({lhs}, CHAR_LENGTH({rhs}))"),
+        Fragment(f"{func}({lhs}, COALESCE(CHAR_LENGTH({rhs}), 0))"),
         "=",
         rhs,
     )

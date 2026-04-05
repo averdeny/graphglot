@@ -873,13 +873,27 @@ class TestCypherToGqlGeneration(unittest.TestCase):
 
     def test_starts_with_generates_left(self):
         result = self._gql("MATCH (a) WHERE a.name STARTS WITH 'A' RETURN a")
-        self.assertIn("LEFT(", result)
-        self.assertIn("CHAR_LENGTH(", result)
+        self.assertEqual(
+            result,
+            "MATCH (a) WHERE LEFT(a.name, COALESCE(CHAR_LENGTH('A'), 0)) = 'A' RETURN a",
+        )
 
     def test_ends_with_generates_right(self):
         result = self._gql("MATCH (a) WHERE a.name ENDS WITH 'Z' RETURN a")
-        self.assertIn("RIGHT(", result)
-        self.assertIn("CHAR_LENGTH(", result)
+        self.assertEqual(
+            result,
+            "MATCH (a) WHERE RIGHT(a.name, COALESCE(CHAR_LENGTH('Z'), 0)) = 'Z' RETURN a",
+        )
+
+    def test_starts_with_null_rhs(self):
+        """NULL rhs produces COALESCE guard — LEFT(x, 0) = NULL → NULL."""
+        result = self._gql("RETURN 'abc' STARTS WITH NULL")
+        self.assertEqual(result, "RETURN LEFT('abc', COALESCE(CHAR_LENGTH(NULL), 0)) = NULL")
+
+    def test_ends_with_null_rhs(self):
+        """NULL lhs propagates naturally — RIGHT(NULL, ...) = 'a' → NULL."""
+        result = self._gql("RETURN NULL ENDS WITH 'a'")
+        self.assertEqual(result, "RETURN RIGHT(NULL, COALESCE(CHAR_LENGTH('a'), 0)) = 'a'")
 
     def test_contains_raises_for_gql(self):
         trees = self.neo4j.parse("MATCH (a) WHERE a.name CONTAINS 'x' RETURN a")
