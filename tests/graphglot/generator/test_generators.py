@@ -14,8 +14,8 @@ from graphglot.lexer import Lexer
 from graphglot.parser import Parser
 
 
-def generate(expr: ast.Expression, dialect=None) -> str:
-    gen = Generator(dialect=dialect)
+def generate(expr: ast.Expression, dialect=None, **opts) -> str:
+    gen = Generator(dialect=dialect, **opts)
     return gen.generate(expr)
 
 
@@ -136,6 +136,36 @@ class TestCoreGenerators(unittest.TestCase):
         # PRODUCT is a GQL keyword → reserved by default
         result = generate(ast.Identifier(name="PRODUCT"))
         self.assertEqual(result, "`PRODUCT`")
+
+    def test_identifier_quote_all_non_reserved(self):
+        """quote_identifiers=True quotes even non-reserved identifiers."""
+        result = generate(ast.Identifier(name="Begin"), quote_identifiers=True)
+        self.assertEqual(result, "`Begin`")
+
+    def test_identifier_quote_all_plain(self):
+        """quote_identifiers=True quotes plain identifiers."""
+        result = generate(ast.Identifier(name="myVar"), quote_identifiers=True)
+        self.assertEqual(result, "`myVar`")
+
+    def test_identifier_quote_all_already_reserved(self):
+        """quote_identifiers=True still quotes reserved words."""
+        result = generate(ast.Identifier(name="MATCH"), quote_identifiers=True)
+        self.assertEqual(result, "`MATCH`")
+
+    def test_identifier_quote_all_special_chars(self):
+        """quote_identifiers=True quotes identifiers with special chars."""
+        result = generate(ast.Identifier(name="my-var"), quote_identifiers=True)
+        self.assertEqual(result, "`my-var`")
+
+    def test_identifier_quote_all_embedded_backtick(self):
+        """quote_identifiers=True escapes embedded backticks."""
+        result = generate(ast.Identifier(name="a`b"), quote_identifiers=True)
+        self.assertEqual(result, "`a``b`")
+
+    def test_identifier_quote_all_default_off(self):
+        """Without quote_identifiers, non-reserved identifiers stay unquoted."""
+        result = generate(ast.Identifier(name="Begin"))
+        self.assertEqual(result, "Begin")
 
     def test_session_close_command(self):
         self.assertEqual(generate(ast.SessionCloseCommand()), "SESSION CLOSE")

@@ -68,6 +68,10 @@ def generate_transaction_activity(gen: Generator, expr: ast.TransactionActivity)
 @generates(ast.Identifier)
 def generate_identifier(gen: Generator, expr: ast.Identifier) -> Fragment:
     name = expr.name
+    # Quote all identifiers unconditionally when option is set
+    if gen.opts.get("quote_identifiers"):
+        escaped = name.replace("`", "``")
+        return Fragment(f"`{escaped}`")
     # Check if identifier needs to be quoted (contains special chars or is a keyword)
     if name and name.isidentifier() and not _is_reserved_word(name, gen.dialect):
         return Fragment(name)
