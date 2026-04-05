@@ -2,6 +2,37 @@
 
 <!-- version list -->
 
+## v0.9.0 (2026-04-05)
+
+### Bug Fixes
+
+- Implement GQL temporal function keywords in base parser (spec 20.27)
+  ([`7f71acd`](https://github.com/averdeny/graphglot/commit/7f71acd5e67b10891cca0bf139a04a73e0ad0445))
+
+- Resolve GQ17 false positive on grouped aliased properties
+  ([`9572a27`](https://github.com/averdeny/graphglot/commit/9572a27de54c73d2c3458b152693b7e8422b3f55))
+
+- Resolve size() via type annotation and parenthesize predicate comparisons
+  ([`2d8ed09`](https://github.com/averdeny/graphglot/commit/2d8ed099be592cd68a3516c5b13887ad8e5a853d))
+
+- Restrict GROUP BY injection to ORDER BY with aggregates (§14.10 SR 4)
+  ([`dd83cd7`](https://github.com/averdeny/graphglot/commit/dd83cd72a553a90d80fb4fea3ab90e12092a0f75))
+
+- Rewrite CypherSimpleCase to searched CASE and add implicit GROUP BY
+  ([`7d3c346`](https://github.com/averdeny/graphglot/commit/7d3c34687dff9f22cfa148563d6c18a18d2c736c))
+
+- Wrap CHAR_LENGTH in COALESCE for STARTS WITH / ENDS WITH NULL safety
+  ([`cdd0e10`](https://github.com/averdeny/graphglot/commit/cdd0e10e8319eb585193b341b482f6e2e1085a61))
+
+### Features
+
+- Add quote_identifiers generator option for safe identifier quoting
+  ([`c593a94`](https://github.com/averdeny/graphglot/commit/c593a944e53172636da53ed70322c51dafebbf81))
+
+- Propagate RETURN alias types across NEXT boundaries
+  ([`e05f95d`](https://github.com/averdeny/graphglot/commit/e05f95d14af9a0eeb8d50c51322bad4026197be2))
+
+
 ## v0.8.4 (2026-04-03)
 
 ### Bug Fixes
