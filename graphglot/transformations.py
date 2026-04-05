@@ -544,17 +544,17 @@ _ReturnWithOrderBy = ast.PrimitiveResultStatement._ReturnStatementOrderByAndPage
 
 
 def implicit_to_explicit_group_by(tree: Expression) -> Expression:
-    """Make Cypher's implicit grouping explicit by adding GROUP BY.
+    """Add explicit GROUP BY when ORDER BY references aggregates.
 
-    In Cypher, ``RETURN n.division, MAX(n.age)`` implicitly groups by
-    ``n.division``.  GQL requires an explicit ``GROUP BY`` clause.
+    GQL §14.10 SR 4.c.i.A.V requires GROUP BY when ORDER BY uses aggregates.
 
-    Two cases:
+    - Mixed aggregate + non-aggregate return items → GROUP BY the non-aggregate
+      items (only when ORDER BY has aggregates).
+    - All-aggregate return items → GROUP BY () (empty grouping set, only when
+      ORDER BY has aggregates).
 
-    1. Mixed aggregate + non-aggregate return items → GROUP BY the
-       non-aggregate items (the implicit grouping keys).
-    2. All-aggregate return items with ORDER BY containing aggregates →
-       GROUP BY () (empty grouping set, required by GQL §14.10 SR 4).
+    Without ORDER BY (or when ORDER BY has no aggregates), GQL does NOT require
+    explicit GROUP BY — §14.11 GR 3b handles per-record evaluation natively.
 
     The generator suppresses GROUP BY when the target dialect does not
     support feature GQ15.
@@ -576,21 +576,19 @@ def implicit_to_explicit_group_by(tree: Expression) -> Expression:
                 has_agg = True
             else:
                 has_non_agg = True
-
         if not has_agg:
             continue
 
+        # Only needed if ORDER BY has aggregates (§14.10 SR 4)
+        obps = inner.order_by_and_page_statement
+        if obps is None:
+            continue
+        if not any(isinstance(n, ast.AggregateFunction) for n in obps.dfs()):
+            continue
+
         if has_non_agg:
-            # Case 1: mixed → GROUP BY non-aggregate items
             _inject_group_by_clause(body)
         else:
-            # Case 2: all aggregates — only needed if ORDER BY has aggregates
-            # (§14.10 SR 4 requires GROUP BY when ORDER BY uses aggregates)
-            obps = inner.order_by_and_page_statement
-            if obps is None:
-                continue
-            if not any(isinstance(n, ast.AggregateFunction) for n in obps.dfs()):
-                continue
             body.__dict__["group_by_clause"] = ast.GroupByClause._construct(
                 grouping_element_list=ast.GroupingElementList._construct(
                     grouping_element_list=ast.EmptyGroupingSet._construct(),
@@ -600,13 +598,7 @@ def implicit_to_explicit_group_by(tree: Expression) -> Expression:
 
 
 def _find_bare_binding_variable(expr: Expression) -> ast.BindingVariableReference | None:
-    """Return the BindingVariableReference if *expr* is a trivial wrapper around one.
-
-    Cypher parses bare variables like ``a`` as
-    ``ArithmeticValueExpression > ArithmeticTerm > ArithmeticFactor > BVR``.
-    If the entire expression generates exactly the variable name, it is a
-    bare binding variable reference — no alias needed (§14.11 rule 8a).
-    """
+    """Return the BindingVariableReference if *expr* is a trivial wrapper around one."""
     for child in expr.dfs():
         if isinstance(child, ast.BindingVariableReference):
             if expr.to_gql() == child.binding_variable.name:
@@ -628,10 +620,8 @@ def _inject_group_by_clause(body: _ReturnItemsWithGroupBy) -> None:
             expr = item.aggregating_value_expression
             bvr = _find_bare_binding_variable(expr)
             if bvr is not None:
-                # Bare variables already have an implicit alias (§14.11 rule 8a)
                 name = bvr.binding_variable.name
             else:
-                # Non-BVR expressions require an explicit alias (§14.11 rule 8b)
                 name = expr.to_gql()
                 item.__dict__["return_item_alias"] = ast.ReturnItemAlias._construct(
                     identifier=ast.Identifier._construct(name=name),

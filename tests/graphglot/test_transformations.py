@@ -890,7 +890,7 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         result = self._gql("RETURN 'abc' STARTS WITH NULL")
         self.assertEqual(result, "RETURN LEFT('abc', COALESCE(CHAR_LENGTH(NULL), 0)) = NULL")
 
-    def test_ends_with_null_rhs(self):
+    def test_ends_with_null_lhs(self):
         """NULL lhs propagates naturally — RIGHT(NULL, ...) = 'a' → NULL."""
         result = self._gql("RETURN NULL ENDS WITH 'a'")
         self.assertEqual(result, "RETURN RIGHT(NULL, COALESCE(CHAR_LENGTH('a'), 0)) = 'a'")
@@ -1060,8 +1060,13 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     # GROUP BY injection
     # ------------------------------------------------------------------
 
-    def test_group_by_injected_with_alias(self):
-        """ORDER BY aggregate with aliased non-agg items gets GROUP BY."""
+    def test_no_group_by_for_mixed_agg(self):
+        """Mixed agg/non-agg RETURN does NOT get GROUP BY (§14.11 GR 3b)."""
+        result = self._transpile("MATCH (n) RETURN n.name AS name, count(*) AS c")
+        self.assertEqual(result, "MATCH (n) RETURN n.name AS name, COUNT(*) AS c")
+
+    def test_group_by_for_mixed_agg_with_order_by(self):
+        """Mixed agg/non-agg with ORDER BY aggregate gets GROUP BY (§14.10 SR 4)."""
         result = self._transpile(
             "MATCH (n) RETURN n.division AS div, max(n.age) AS m ORDER BY max(n.age)"
         )
@@ -1070,13 +1075,21 @@ class TestCypherToGqlGeneration(unittest.TestCase):
             "MATCH (n) RETURN n.division AS div, MAX(n.age) AS m GROUP BY div ORDER BY MAX(n.age)",
         )
 
-    def test_group_by_injected_without_alias(self):
-        """ORDER BY aggregate with unaliased non-agg items gets alias + GROUP BY."""
+    def test_group_by_unaliased_property_with_order_by(self):
+        """Unaliased non-agg property + ORDER BY aggregate gets alias + GROUP BY."""
         result = self._transpile("MATCH (n) RETURN n.division, max(n.age) ORDER BY max(n.age)")
         self.assertEqual(
             result,
             "MATCH (n) RETURN n.division AS `n.division`, MAX(n.age)"
             " GROUP BY `n.division` ORDER BY MAX(n.age)",
+        )
+
+    def test_group_by_bare_variable_with_order_by(self):
+        """Bare variable + ORDER BY aggregate gets GROUP BY without synthetic alias."""
+        result = self._transpile("MATCH (a) RETURN a, count(*) ORDER BY count(*)")
+        self.assertEqual(
+            result,
+            "MATCH (a) RETURN a, COUNT(*) GROUP BY a ORDER BY COUNT(*)",
         )
 
     def test_group_by_empty_grouping_set(self):
@@ -1087,33 +1100,14 @@ class TestCypherToGqlGeneration(unittest.TestCase):
             "MATCH (n) RETURN AVG(n.age) AS avgAge GROUP BY () ORDER BY AVG(n.age)",
         )
 
-    def test_group_by_without_order_by(self):
-        """Mixed agg/non-agg RETURN without ORDER BY also gets GROUP BY."""
-        result = self._transpile("MATCH (n) RETURN n.name AS name, count(*) AS c")
-        self.assertEqual(
-            result,
-            "MATCH (n) RETURN n.name AS name, COUNT(*) AS c GROUP BY name",
-        )
-
-    def test_group_by_bare_variable_no_alias(self):
-        """Bare variable needs no alias — GROUP BY references it directly."""
-        result = self._transpile("MATCH (a) RETURN a, count(*) ORDER BY count(*)")
-        self.assertEqual(
-            result,
-            "MATCH (a) RETURN a, COUNT(*) GROUP BY a ORDER BY COUNT(*)",
-        )
-
-    def test_group_by_bare_variable_without_order_by(self):
-        """Bare variable without ORDER BY — no alias injected."""
-        result = self._transpile("MATCH (a) RETURN a, count(*) AS c")
-        self.assertEqual(
-            result,
-            "MATCH (a) RETURN a, COUNT(*) AS c GROUP BY a",
-        )
+    def test_no_group_by_all_agg_without_order_by(self):
+        """All-aggregate RETURN without ORDER BY — no GROUP BY needed."""
+        result = self._transpile("MATCH (n) RETURN count(*) AS c, avg(n.age) AS a")
+        self.assertNotIn("GROUP BY", result)
 
     def test_group_by_suppressed_in_cypher(self):
         """Cypher roundtrip does NOT emit GROUP BY (Neo4j lacks GQ15)."""
-        trees = self.neo4j.parse("MATCH (n) RETURN n.name AS name, count(*) AS c")
+        trees = self.neo4j.parse("MATCH (n) RETURN avg(n.age) AS a ORDER BY avg(n.age)")
         transformed = self.neo4j.transform(trees)
         result = self.neo4j.generate(transformed[0])
         self.assertNotIn("GROUP BY", result)

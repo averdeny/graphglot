@@ -244,6 +244,26 @@ class TestGQ17(unittest.TestCase):
         )
         self.assertTrue(result.ok)
 
+    def test_mixed_agg_no_group_by_no_diagnostic(self):
+        """Mixed aggregate + non-aggregate without GROUP BY → no diagnostic.
+
+        GQL §14.11 GR 3b handles per-record evaluation natively; no GROUP BY
+        is injected by implicit_to_explicit_group_by for this case.
+        """
+        from graphglot.dialect.neo4j import Neo4j
+        from graphglot.transformations import implicit_to_explicit_group_by, with_to_next
+
+        neo4j = Neo4j()
+        for q in [
+            "MATCH (me:Person)--(you:Person)\nRETURN me.age, me.age + count(you.age)",
+            "MATCH (a {name: 'Andres'})<-[:FATHER]-(child)\n"
+            "RETURN a.name, {foo: a.name='Andres', kids: collect(child.name)}",
+        ]:
+            with self.subTest(q=q):
+                tree = implicit_to_explicit_group_by(with_to_next(neo4j.parse(q)[0]))
+                result = SemanticAnalyzer().analyze(tree, _NoGQ17())
+                self.assertTrue(result.ok, [d.message for d in result.diagnostics])
+
 
 # ===========================================================================
 # GA09 — Comparison of paths
