@@ -719,13 +719,41 @@ def _parse_cypher_type_conversion(parser: BaseParser) -> ast.CommonValueExpressi
     return _cast_as_cve(arg, _token_to_cast_target(tok.token_type))
 
 
+def _is_bare_variable_path_pattern(pp: ast.PathPattern) -> bool:
+    """True when the path pattern is just ``(variable)`` — no labels, properties, or edges.
+
+    In Cypher, bare ``(variable)`` in boolean context is a parenthesized
+    expression, not a pattern predicate.  Only patterns with edges, labels,
+    or property predicates are valid pattern predicates.
+    """
+    if pp.path_variable_declaration is not None or pp.path_pattern_prefix is not None:
+        return False
+    ppe = pp.path_pattern_expression
+    if not isinstance(ppe, ast.PathTerm) or len(ppe.factors) != 1:
+        return False
+    factor = ppe.factors[0]
+    if not isinstance(factor, ast.NodePattern):
+        return False
+    filler = factor.element_pattern_filler
+    return (
+        filler.element_variable_declaration is not None
+        and filler.is_label_expression is None
+        and filler.element_pattern_predicate is None
+    )
+
+
 def _parse_cypher_pattern_predicate(parser: BaseParser) -> CypherPatternPredicate:
     """Parse a bare pattern as a predicate: ``(n)-[:T]->()``.
 
     Called from ``_parse_cypher_boolean_test`` when a ``(`` is found and the
     following tokens form a path pattern (not a parenthesized expression).
+
+    Rejects bare ``(variable)`` patterns — in Cypher these are parenthesized
+    expressions, not pattern predicates.
     """
     path_pattern = parser.get_parser(ast.PathPattern)(parser)
+    if _is_bare_variable_path_pattern(path_pattern):
+        parser.raise_error("Bare (variable) is a parenthesized expression, not a pattern predicate")
     return CypherPatternPredicate(pattern=path_pattern)
 
 

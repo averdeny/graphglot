@@ -3446,6 +3446,68 @@ class TestPatternPredicates(unittest.TestCase):
         matches = list(results[0].find_all(CypherPatternPredicate))
         self.assertEqual(len(matches), 1)
 
+    def test_bare_variable_not_pattern_predicate(self):
+        """NOT (a) where a is a variable should NOT be a CypherPatternPredicate."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("UNWIND [true, false] AS a RETURN NOT (a) AS result")
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 0, "Bare (a) should not be a pattern predicate")
+
+    def test_bare_variable_in_demorgan(self):
+        """De Morgan: NOT (a) AND NOT (b) should not create pattern predicates."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse(
+            "UNWIND [true, false] AS a "
+            "UNWIND [true, false] AS b "
+            "RETURN NOT (a OR b) = (NOT (a) AND NOT (b)) AS result"
+        )
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 0)
+
+    def test_labeled_node_remains_pattern_predicate(self):
+        """(n:Person) should still be parsed as a CypherPatternPredicate."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE (n:Person) RETURN n")
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 1)
+
+    def test_node_with_property_remains_pattern_predicate(self):
+        """(n {name: 'x'}) should still be parsed as a CypherPatternPredicate."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE (n {name: 'x'}) RETURN n")
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 1)
+
+    def test_bare_variable_without_not(self):
+        """WHERE (a) alone — bare (a) should be parenthesized expression."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("UNWIND [true, false] AS a WITH a WHERE (a) RETURN a")
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 0)
+
+    def test_bare_node_variable_not_pattern_predicate(self):
+        """MATCH (n) WHERE NOT (n) — bare (n) is parenthesized expression in Cypher."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE NOT (n) RETURN n")
+        matches = list(results[0].find_all(CypherPatternPredicate))
+        self.assertEqual(len(matches), 0, "Bare (n) should not be a pattern predicate")
+
+    def test_bare_variable_gql_no_exists(self):
+        """NOT (a) transpiled to GQL should not contain EXISTS."""
+        from graphglot.dialect.fullgql import FullGQL
+
+        fullgql = FullGQL()
+        results = self.neo4j.parse("UNWIND [true, false] AS a RETURN NOT (a) AS result")
+        transformed = self.neo4j.transform(results)
+        gql = fullgql.generate(transformed[0])
+        self.assertNotIn("EXISTS", gql, "Bare (a) should not become EXISTS {(a)}")
+
 
 # =============================================================================
 # Data-modifying statement chaining (Plan 041, Feature 1)
