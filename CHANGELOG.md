@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.2 (2026-04-06)
+
+### Bug Fixes
+
+- Skip pre-filtering WITH...WHERE when aggregation is present
+  ([`1bf48c9`](https://github.com/averdeny/graphglot/commit/1bf48c92cadafced050f61a5a21184f3fb8d3676))
+
+
 ## v0.9.1 (2026-04-06)
 
 ### Bug Fixes
