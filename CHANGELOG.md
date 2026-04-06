@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.1 (2026-04-06)
+
+### Bug Fixes
+
+- Reject bare (variable) as pattern predicate in boolean context
+  ([`8749e0e`](https://github.com/averdeny/graphglot/commit/8749e0e0b271e3f78b928ba89fc70ba6e042c68b))
+
+
 ## v0.9.0 (2026-04-05)
 
 ### Bug Fixes
