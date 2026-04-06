@@ -144,8 +144,9 @@ def _rewrite_alqs(
                 }
             )
 
-            if not losing:
-                # No scope loss — filter after NEXT with raw WHERE
+            if not losing or _has_aggregation(stmt):
+                # No scope loss, or aggregation restricts WHERE to projected
+                # names only — filter after NEXT with raw WHERE.
                 withs.append(_strip_where(stmt))
                 current_segment = [_make_filter_stmt(stmt.where_clause)]
 
@@ -208,6 +209,26 @@ def _rewrite_alqs(
 # ===========================================================================
 # WITH...WHERE scope-loss helpers
 # ===========================================================================
+
+
+def _has_aggregation(stmt: CypherWithStatement) -> bool:
+    """True when WITH contains aggregate functions (COUNT, AVG, SUM, etc.).
+
+    In Cypher, WITH + aggregation restricts the WHERE scope to projected
+    names only — pre-WITH variables are not accessible.  Pre-filtering
+    would both hide the scope error and change semantics (filtering
+    before aggregation instead of after).
+    """
+    inner = stmt.return_statement_body.return_statement_body
+    if not isinstance(inner, ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause):
+        return False
+    if inner.return_item_list is None:
+        return False
+    return any(
+        isinstance(n, ast.AggregateFunction)
+        for item in inner.return_item_list.list_return_item
+        for n in item.dfs()
+    )
 
 
 def _make_filter_stmt(where: ast.WhereClause) -> ast.FilterStatement:
@@ -483,7 +504,7 @@ def _rewrite_data_modifying_body(
                 }
             )
 
-            if not losing:
+            if not losing or _has_aggregation(stmt):
                 withs.append(_strip_where(stmt))
                 current = [_make_filter_stmt(stmt.where_clause)]
             else:

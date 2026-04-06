@@ -362,6 +362,39 @@ class TestWithToNextScopeLoss(unittest.TestCase):
         q = "MATCH (a)-[r]->(b) WITH a, b WHERE a.name IS NOT NULL WITH b WHERE b.age > 25 RETURN b"
         self._assert_zero_diagnostics(q)
 
+    # ------------------------------------------------------------------
+    # Aggregation: losing vars must NOT be pre-filtered
+    # ------------------------------------------------------------------
+    def test_aggregation_losing_var_not_prefiltered(self):
+        """WITH aggregation + pre-WITH var in WHERE → filter after NEXT, not before RETURN."""
+        q = "MATCH (a)-[r]->(b) WITH a, count(*) AS cnt WHERE r.weight > 0.5 RETURN a, cnt"
+        gql = self._transform_gql(q)
+        next_pos = gql.index("NEXT")
+        filter_pos = gql.index("FILTER WHERE")
+        self.assertGreater(
+            filter_pos, next_pos, "With aggregation, losing vars must not be pre-filtered"
+        )
+
+    def test_aggregation_losing_var_produces_diagnostic(self):
+        """WITH aggregation + pre-WITH var in WHERE → scope validator catches it."""
+        q = "MATCH (a)-[r]->(b) WITH a, count(*) AS cnt WHERE r.weight > 0.5 RETURN a, cnt"
+        trees = self.neo4j.parse(q)
+        transformed = self.neo4j.transform(trees)
+        result = self.analyzer.analyze(transformed[0], self.neo4j)
+        self.assertGreater(
+            len(result.diagnostics), 0, "Expected scope diagnostic for 'r' after aggregation WITH"
+        )
+
+    def test_distinct_losing_var_still_prefilters(self):
+        """WITH DISTINCT without aggregation + pre-WITH var → pre-filter is safe."""
+        q = "MATCH (a)-[r]->(b) WITH DISTINCT b WHERE r IS NULL RETURN b"
+        gql = self._transform_gql(q)
+        filter_pos = gql.index("FILTER WHERE")
+        first_return = gql.index("RETURN")
+        self.assertLess(
+            filter_pos, first_return, "DISTINCT without aggregation should still pre-filter"
+        )
+
 
 class TestCypherWithOwnsWhere(unittest.TestCase):
     """CypherWithStatement should own its WHERE clause directly.
