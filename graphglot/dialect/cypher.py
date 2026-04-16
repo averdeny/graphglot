@@ -2607,9 +2607,10 @@ def _parse_varlen_quantifier(
             upper = ast.UnsignedInteger(
                 value=int(t.cast(Token, parser._expect(TokenType.NUMBER)).text)
             )
-        return ast.GeneralQuantifier(lower_bound=None, upper_bound=upper)
-    # Bare *: unbounded
-    return ast.GeneralQuantifier(lower_bound=None, upper_bound=None)
+        # Cypher *..M defaults lower bound to 1 (1-or-more hops)
+        return ast.GeneralQuantifier(lower_bound=ast.UnsignedInteger(value=1), upper_bound=upper)
+    # Bare *: Cypher defaults to 1-or-more hops
+    return ast.GeneralQuantifier(lower_bound=ast.UnsignedInteger(value=1), upper_bound=None)
 
 
 def _parse_cypher_element_pattern_filler(parser: BaseParser) -> ast.ElementPatternFiller:
@@ -2688,11 +2689,14 @@ def _format_cypher_quantifier(q: ast.GraphPatternQuantifier) -> str:
     if isinstance(q, ast.FixedQuantifier):
         return f"*{q.unsigned_integer.value}"
     if isinstance(q, ast.GeneralQuantifier):
-        lower = str(q.lower_bound.value) if q.lower_bound else ""
-        upper = str(q.upper_bound.value) if q.upper_bound else ""
-        if not lower and not upper:
+        lower = q.lower_bound.value if q.lower_bound else 0
+        upper = q.upper_bound.value if q.upper_bound else None
+        if lower == 1 and upper is None:
             return "*"
-        return f"*{lower}..{upper}"
+        # Omit lower when it equals Cypher's default (1): *..M means 1..M
+        lower_str = str(lower) if lower != 1 else ""
+        upper_str = str(upper) if upper is not None else ""
+        return f"*{lower_str}..{upper_str}"
     return "*"
 
 

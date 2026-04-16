@@ -3135,12 +3135,15 @@ class TestCypherVariableLengthPaths(unittest.TestCase):
     # --- Directed right: quantifier forms ---
 
     def test_unbounded_star(self):
-        """MATCH (a)-[*]->(b) RETURN a — GeneralQuantifier(None, None)."""
+        """MATCH (a)-[*]->(b) RETURN a — GeneralQuantifier(1, None).
+
+        Cypher ``[*]`` means 1-or-more hops (lower bound defaults to 1).
+        """
         qpp = self._get_qpp("MATCH (a)-[*]->(b) RETURN a")
         self.assertIsInstance(qpp.path_primary, ast.FullEdgePointingRight)
         q = qpp.graph_pattern_quantifier
         self.assertIsInstance(q, ast.GeneralQuantifier)
-        self.assertIsNone(q.lower_bound)
+        self.assertEqual(q.lower_bound.value, 1)
         self.assertIsNone(q.upper_bound)
 
     def test_fixed_quantifier(self):
@@ -3160,11 +3163,14 @@ class TestCypherVariableLengthPaths(unittest.TestCase):
         self.assertEqual(q.upper_bound.value, 3)
 
     def test_upper_only(self):
-        """MATCH (a)-[*..5]->(b) RETURN a — GeneralQuantifier(None, 5)."""
+        """MATCH (a)-[*..5]->(b) RETURN a — GeneralQuantifier(1, 5).
+
+        Cypher ``[*..5]`` means 1-to-5 hops (lower bound defaults to 1).
+        """
         qpp = self._get_qpp("MATCH (a)-[*..5]->(b) RETURN a")
         q = qpp.graph_pattern_quantifier
         self.assertIsInstance(q, ast.GeneralQuantifier)
-        self.assertIsNone(q.lower_bound)
+        self.assertEqual(q.lower_bound.value, 1)
         self.assertEqual(q.upper_bound.value, 5)
 
     def test_lower_only(self):
@@ -3175,17 +3181,36 @@ class TestCypherVariableLengthPaths(unittest.TestCase):
         self.assertEqual(q.lower_bound.value, 3)
         self.assertIsNone(q.upper_bound)
 
+    def test_explicit_zero_lower(self):
+        """MATCH (a)-[*0..]->(b) RETURN a — GeneralQuantifier(0, None).
+
+        Explicit ``[*0..]`` means 0-or-more, distinct from ``[*]`` (1-or-more).
+        """
+        qpp = self._get_qpp("MATCH (a)-[*0..]->(b) RETURN a")
+        q = qpp.graph_pattern_quantifier
+        self.assertIsInstance(q, ast.GeneralQuantifier)
+        self.assertEqual(q.lower_bound.value, 0)
+        self.assertIsNone(q.upper_bound)
+
+    def test_explicit_zero_lower_bounded(self):
+        """MATCH (a)-[*0..3]->(b) RETURN a — GeneralQuantifier(0, 3)."""
+        qpp = self._get_qpp("MATCH (a)-[*0..3]->(b) RETURN a")
+        q = qpp.graph_pattern_quantifier
+        self.assertIsInstance(q, ast.GeneralQuantifier)
+        self.assertEqual(q.lower_bound.value, 0)
+        self.assertEqual(q.upper_bound.value, 3)
+
     # --- Decorations: type, variable, property ---
 
     def test_type_and_unbounded(self):
-        """MATCH (a)-[:KNOWS*]->(b) RETURN a — type + unbounded."""
+        """MATCH (a)-[:KNOWS*]->(b) RETURN a — type + unbounded (1+)."""
         qpp = self._get_qpp("MATCH (a)-[:KNOWS*]->(b) RETURN a")
         self.assertIsInstance(qpp.path_primary, ast.FullEdgePointingRight)
         filler = qpp.path_primary.element_pattern_filler
         self.assertIsNotNone(filler.is_label_expression)
         q = qpp.graph_pattern_quantifier
         self.assertIsInstance(q, ast.GeneralQuantifier)
-        self.assertIsNone(q.lower_bound)
+        self.assertEqual(q.lower_bound.value, 1)
         self.assertIsNone(q.upper_bound)
 
     def test_var_type_and_bounded(self):
@@ -3235,7 +3260,7 @@ class TestCypherVariableLengthPaths(unittest.TestCase):
 
     def test_round_trip_unbounded(self):
         result = self._round_trip("MATCH (a)-[*]->(b) RETURN a")
-        self.assertIn("{,}", result)
+        self.assertIn("{1,}", result)
 
     def test_round_trip_fixed(self):
         result = self._round_trip("MATCH (a)-[*2]->(b) RETURN a")
@@ -3261,7 +3286,20 @@ class TestCypherVariableLengthPaths(unittest.TestCase):
 
     def test_round_trip_undirected(self):
         result = self._round_trip("MATCH (a)-[*]-(b) RETURN a")
-        self.assertIn("{,}", result)
+        self.assertIn("{1,}", result)
+
+    def test_round_trip_explicit_zero_lower(self):
+        result = self._round_trip("MATCH (a)-[*0..]->(b) RETURN a")
+        self.assertIn("{0,}", result)
+
+    def test_round_trip_explicit_zero_bounded(self):
+        result = self._round_trip("MATCH (a)-[*0..3]->(b) RETURN a")
+        self.assertIn("{0,3}", result)
+
+    def test_round_trip_upper_only(self):
+        """[*..5] means 1..5 in Cypher, should produce {1,5} in GQL."""
+        result = self._round_trip("MATCH (a)-[*..5]->(b) RETURN a")
+        self.assertIn("{1,5}", result)
 
 
 # =============================================================================
