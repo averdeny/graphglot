@@ -1167,3 +1167,70 @@ class TestCypherToGqlGeneration(unittest.TestCase):
         # Size should be resolved (no Size nodes left in tree)
         size_nodes = list(transformed[0].find_all(Size))
         self.assertEqual(len(size_nodes), 0, "Size should be resolved to CardinalityExpression")
+
+    # ------------------------------------------------------------------
+    # List comprehension
+    # ------------------------------------------------------------------
+
+    def test_list_comprehension_gql(self):
+        """[x IN list WHERE pred | expr] → VALUE { FOR ... COLLECT_LIST }."""
+        result = self._gql("RETURN [x IN [1, 2, 3] WHERE x > 1 | x * 2] AS r")
+        self.assertEqual(
+            result,
+            "RETURN VALUE {FOR x IN [1, 2, 3] FILTER WHERE x > 1 RETURN COLLECT_LIST(x * 2)} AS r",
+        )
+
+    def test_list_comprehension_no_where_gql(self):
+        """[x IN list | expr] without WHERE omits FILTER WHERE."""
+        result = self._gql("RETURN [x IN [1, 2, 3] | x * 2] AS r")
+        self.assertEqual(
+            result,
+            "RETURN VALUE {FOR x IN [1, 2, 3] RETURN COLLECT_LIST(x * 2)} AS r",
+        )
+
+    def test_list_comprehension_where_only_gql(self):
+        """[x IN list WHERE pred] without projection collects the variable."""
+        result = self._gql("RETURN [x IN [1, 2, 3] WHERE x > 1] AS r")
+        self.assertEqual(
+            result,
+            "RETURN VALUE {FOR x IN [1, 2, 3] FILTER WHERE x > 1 RETURN COLLECT_LIST(x)} AS r",
+        )
+
+    def test_list_comprehension_identity_gql(self):
+        """[x IN list] identity comprehension uses COLLECT_LIST(x)."""
+        result = self._gql("RETURN [x IN [1, 2, 3]] AS r")
+        self.assertEqual(
+            result,
+            "RETURN VALUE {FOR x IN [1, 2, 3] RETURN COLLECT_LIST(x)} AS r",
+        )
+
+    def test_list_comprehension_cypher_roundtrip(self):
+        """Cypher roundtrip preserves comprehension syntax."""
+        result = self._cypher("RETURN [x IN [1, 2, 3] WHERE x > 1 | x * 2] AS r")
+        self.assertEqual(result, "RETURN [ x IN [1, 2, 3] WHERE x > 1 | x * 2 ] AS r")
+
+    # ------------------------------------------------------------------
+    # Pattern comprehension
+    # ------------------------------------------------------------------
+
+    def test_pattern_comprehension_gql(self):
+        """[(n)-->(b) | b.name] → VALUE { MATCH ... COLLECT_LIST }."""
+        result = self._gql("MATCH (n) RETURN [(n)-->(b) | b.name] AS names")
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN VALUE {MATCH (n) -> (b) RETURN COLLECT_LIST(b.name)} AS names",
+        )
+
+    def test_pattern_comprehension_with_where_gql(self):
+        """[(n)-->(b) WHERE pred | expr] includes FILTER WHERE."""
+        result = self._gql("MATCH (n) RETURN [(n)-->(b) WHERE b.age > 18 | b.name] AS names")
+        self.assertEqual(
+            result,
+            "MATCH (n) RETURN VALUE {MATCH (n) -> (b)"
+            " FILTER WHERE b.age > 18 RETURN COLLECT_LIST(b.name)} AS names",
+        )
+
+    def test_pattern_comprehension_cypher_roundtrip(self):
+        """Cypher roundtrip preserves pattern comprehension syntax."""
+        result = self._cypher("MATCH (n) RETURN [(n)-->(b) | b.name] AS names")
+        self.assertEqual(result, "MATCH (n) RETURN [ (n) --> (b) | b.name ] AS names")

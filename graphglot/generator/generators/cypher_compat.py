@@ -17,9 +17,11 @@ from graphglot import ast
 from graphglot.ast.cypher import (
     CreateClause,
     CypherChainedComparison,
+    CypherPatternComprehension,
     CypherPatternPredicate,
     CypherPredicateComparison,
     CypherSimpleCase,
+    ListComprehension,
     ListPredicateFunction,
     StringMatchPredicate,
 )
@@ -105,6 +107,46 @@ def generate_list_predicate(gen: Generator, expr: ListPredicateFunction) -> Frag
 
     # none, all → (NOT EXISTS { ... })
     return parens(seq("NOT", exists))
+
+
+def _collect_list(projection: Fragment) -> Fragment:
+    """Build ``COLLECT_LIST(<projection>)`` fragment."""
+    return Fragment(f"COLLECT_LIST({projection})")
+
+
+@generates(ListComprehension)
+def generate_list_comprehension_gql(gen: Generator, expr: ListComprehension) -> Fragment:
+    """``[x IN L WHERE P | E]`` → ``VALUE { FOR x IN L FILTER WHERE P RETURN COLLECT_LIST(E) }``.
+
+    Without WHERE: omit ``FILTER WHERE``.
+    Without projection: collect the variable itself.
+    """
+    var = gen.dispatch(expr.variable)
+    source = gen.dispatch(expr.source)
+    parts: list[str | Fragment] = ["FOR", var, "IN", source]
+    if expr.where_clause:
+        pred = gen.dispatch(expr.where_clause.search_condition)
+        parts.extend(["FILTER WHERE", pred])
+    proj = gen.dispatch(expr.projection) if expr.projection else var
+    parts.extend(["RETURN", _collect_list(proj)])
+    body = gen.seq(*parts)
+    return gen.seq("VALUE", gen.braces(body))
+
+
+@generates(CypherPatternComprehension)
+def generate_pattern_comprehension_gql(
+    gen: Generator, expr: CypherPatternComprehension
+) -> Fragment:
+    """Pattern comprehension → ``VALUE { MATCH ... FILTER WHERE P RETURN COLLECT_LIST(E) }``."""
+    pattern = gen.dispatch(expr.pattern)
+    parts: list[str | Fragment] = ["MATCH", pattern]
+    if expr.where_clause:
+        pred = gen.dispatch(expr.where_clause.search_condition)
+        parts.extend(["FILTER WHERE", pred])
+    proj = gen.dispatch(expr.projection)
+    parts.extend(["RETURN", _collect_list(proj)])
+    body = gen.seq(*parts)
+    return gen.seq("VALUE", gen.braces(body))
 
 
 _COMP_OP_STR = {
