@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.4 (2026-04-16)
+
+### Bug Fixes
+
+- Translate Cypher comprehensions to GQL instead of silent []
+  ([`8cf7b7c`](https://github.com/averdeny/graphglot/commit/8cf7b7cefa74ae8f9fdbae9289349db82ea9176e))
+
+
 ## v0.9.3 (2026-04-16)
 
 ### Bug Fixes
