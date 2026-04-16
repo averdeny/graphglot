@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.9.3 (2026-04-16)
+
+### Bug Fixes
+
+- Set Cypher variable-length path default lower bound to 1
+  ([`2a055de`](https://github.com/averdeny/graphglot/commit/2a055de17d49aa957a1a313c9e606d84903a097d))
+
+
 ## v0.9.2 (2026-04-06)
 
 ### Bug Fixes
