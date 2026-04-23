@@ -24,11 +24,14 @@ def generate_graph_pattern_binding_table(
 
 @generates(ast.GraphPattern)
 def generate_graph_pattern(gen: Generator, expr: ast.GraphPattern) -> Fragment:
+    # Parser is lossless: match_mode is None when the user omitted the
+    # keyword.  Emit exactly what the user wrote — cross-dialect semantic
+    # preservation is handled by materialize_implementation_defaults,
+    # which inserts an explicit match_mode when source and target
+    # dialects disagree on DEFAULT_MATCH_MODE.
     inner_parts = []
-    if expr.match_mode:
-        # Omit match mode when it matches the write dialect's default (implicit).
-        if not gen.dialect or type(expr.match_mode) is not gen.dialect.DEFAULT_MATCH_MODE:
-            inner_parts.append(gen.dispatch(expr.match_mode))
+    if expr.match_mode is not None:
+        inner_parts.append(gen.dispatch(expr.match_mode))
     inner_parts.append(gen.dispatch(expr.path_pattern_list))
     if expr.keep_clause:
         inner_parts.append(gen.dispatch(expr.keep_clause))

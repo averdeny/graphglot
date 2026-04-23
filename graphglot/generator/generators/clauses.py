@@ -36,8 +36,13 @@ def generate_sort_specification_list(gen: Generator, expr: ast.SortSpecification
 
 @generates(ast.SortSpecification)
 def generate_sort_specification(gen: Generator, expr: ast.SortSpecification) -> Fragment:
+    # Parser is lossless: ordering_specification is None when the user
+    # omitted the keyword.  Emit exactly what the user wrote — the
+    # cross-dialect materialization step inserts an explicit keyword
+    # when source and target dialects disagree on the default, so
+    # fidelity here preserves semantics in every case.
     parts = [gen.dispatch(expr.sort_key)]
-    if expr.ordering_specification:
+    if expr.ordering_specification is not None:
         parts.append(gen.dispatch(expr.ordering_specification))
     if expr.null_ordering:
         parts.append(gen.dispatch(expr.null_ordering))

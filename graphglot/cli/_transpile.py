@@ -76,8 +76,19 @@ def transpile_cmd(
         )
         raise SystemExit(f"Error: {msgs}") from None
 
-    # Transform (with_to_next + resolve_ambiguous) + generate with write dialect
+    # Transform (with_to_next + resolve_ambiguous) under read dialect.
     expressions = read_d.transform(validation.expressions)
+
+    # Cross-dialect step: materialize implementation-defined defaults from
+    # the source dialect when the target's defaults differ, so the output
+    # preserves source semantics even for fields the user wrote implicitly.
+    # No-op when read_d == write_d or when every monitored default agrees.
+    if read_d != write_d:
+        from graphglot.transformations import materialize_implementation_defaults
+
+        for expression in expressions:
+            materialize_implementation_defaults(expression, source=read_d, target=write_d)
+
     results = [
         write_d.generate(expression, copy=False, pretty=pretty_print) for expression in expressions
     ]

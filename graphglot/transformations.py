@@ -14,6 +14,9 @@ from graphglot.ast.cypher import CypherWithStatement
 from graphglot.ast.functions import Size
 from graphglot.typing.types import TypeKind
 
+if t.TYPE_CHECKING:
+    from graphglot.dialect.base import Dialect
+
 Transformation = t.Callable[[Expression], Expression]
 
 
@@ -973,3 +976,119 @@ def _replace_in_parent(old: Expression, new: Expression) -> None:
     new._parent = parent
     new._arg_key = key
     new._index = idx
+
+
+# ===========================================================================
+# materialize_implementation_defaults — preserve cross-dialect semantics
+# ===========================================================================
+
+# Path-search prefixes that carry an optional `path_mode` field.  Listed
+# explicitly so we can assign uniformly without per-class branching.
+_PATH_SEARCH_WITH_MODE: tuple[type[Expression], ...] = (
+    ast.AllPathSearch,
+    ast.AnyPathSearch,
+    ast.AllShortestPathSearch,
+    ast.AnyShortestPathSearch,
+    ast.CountedShortestPathSearch,
+    ast.CountedShortestGroupSearch,
+)
+
+
+def _new_path_mode_prefix(mode: ast.PathMode.Mode) -> ast.PathModePrefix:
+    """Build a synthesized PathModePrefix at the given mode.
+
+    Uses ``_construct`` to skip ``require_feature(F.G010..G013)`` on the
+    inner ``PathMode`` — the keyword wasn't in the source query, so this
+    materialization shouldn't introduce a feature requirement.  The outer
+    prefix goes through normal construction so its own structural
+    invariants run.
+    """
+    return ast.PathModePrefix(
+        path_mode=ast.PathMode._construct(mode=mode),
+        path_or_paths=None,
+    )
+
+
+def _new_match_mode(mode_class: type[ast.MatchMode]) -> ast.MatchMode:
+    """Build a synthesized MatchMode of *mode_class*.
+
+    Mirrors the bypass used historically by the parser at
+    ``parse_graph_pattern`` so dialects that don't list G002/G003 as
+    supported still validate cleanly.
+    """
+    if mode_class is ast.DifferentEdgesMatchMode:
+        return ast.DifferentEdgesMatchMode._construct(mode=ast.DifferentEdgesMatchMode.Mode.EDGES)
+    if mode_class is ast.RepeatableElementsMatchMode:
+        return ast.RepeatableElementsMatchMode._construct(
+            mode=ast.RepeatableElementsMatchMode.Mode.ELEMENTS
+        )
+    raise TypeError(  # pragma: no cover — only two MatchMode subclasses exist
+        f"Unknown MatchMode subclass: {mode_class!r}"
+    )
+
+
+def _materialize_path_mode(tree: Expression, source_default: ast.PathMode.Mode) -> None:
+    """Fill in implicit path modes throughout *tree* with *source_default*.
+
+    Walks every PathPattern, ParenthesizedPathPatternExpression, and
+    path-search prefix and sets the path_mode/path_mode_prefix slot when
+    it is None, using the source dialect's default.
+    """
+    for node in tree.dfs():
+        if isinstance(node, ast.PathPattern):
+            if node.path_pattern_prefix is None:
+                node.set("path_pattern_prefix", _new_path_mode_prefix(source_default))
+        elif isinstance(node, ast.ParenthesizedPathPatternExpression):
+            if node.path_mode_prefix is None:
+                node.set("path_mode_prefix", _new_path_mode_prefix(source_default))
+        elif isinstance(node, _PATH_SEARCH_WITH_MODE):
+            # Every type in _PATH_SEARCH_WITH_MODE carries `path_mode`, but
+            # mypy can't narrow through a tuple-of-types isinstance check.
+            if getattr(node, "path_mode", None) is None:
+                node.set("path_mode", ast.PathMode._construct(mode=source_default))
+
+
+def _materialize_order_direction(
+    tree: Expression, source_default: ast.OrderingSpecification.Order
+) -> None:
+    """Fill in implicit ORDER BY directions throughout *tree*."""
+    for node in tree.dfs():
+        if isinstance(node, ast.SortSpecification) and node.ordering_specification is None:
+            node.set(
+                "ordering_specification",
+                ast.OrderingSpecification(ordering_specification=source_default),
+            )
+
+
+def _materialize_match_mode(tree: Expression, source_default: type[ast.MatchMode]) -> None:
+    """Fill in implicit match modes throughout *tree*."""
+    for node in tree.dfs():
+        if isinstance(node, ast.GraphPattern) and node.match_mode is None:
+            node.set("match_mode", _new_match_mode(source_default))
+
+
+def materialize_implementation_defaults(
+    tree: Expression,
+    source: Dialect,
+    target: Dialect,
+) -> Expression:
+    """Materialize source-dialect defaults into *tree* where they would
+    otherwise be implicit and the target dialect's default differs.
+
+    Used by the cross-dialect transpile pipeline to preserve semantics when
+    the source and target disagree on a default — the explicit keyword
+    must appear in the output, otherwise re-parsing under the target
+    dialect would resolve to a different effective value.
+
+    No-op when ``source is target`` or when every monitored default agrees.
+    Mutates *tree* in place and returns it.
+    """
+    if source is target:
+        return tree
+    if source.DEFAULT_PATH_MODE != target.DEFAULT_PATH_MODE:
+        _materialize_path_mode(tree, source.DEFAULT_PATH_MODE)
+    if source.DEFAULT_ORDER_DIRECTION != target.DEFAULT_ORDER_DIRECTION:
+        _materialize_order_direction(tree, source.DEFAULT_ORDER_DIRECTION)
+    if source.DEFAULT_MATCH_MODE != target.DEFAULT_MATCH_MODE:
+        _materialize_match_mode(tree, source.DEFAULT_MATCH_MODE)
+    return tree

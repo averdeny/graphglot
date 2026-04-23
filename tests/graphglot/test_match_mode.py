@@ -1,8 +1,11 @@
-"""Tests for implicit default match mode (ISO/IEC 39075 ID086).
+"""Tests for implicit default match mode (see ISO/IEC 39075 §ID086).
 
-The parser injects DifferentEdgesMatchMode when no explicit match mode is
-specified.  The generator omits the match mode when it matches the write
-dialect's DEFAULT_MATCH_MODE.
+Parser is lossless — ``GraphPattern.match_mode`` stays ``None`` when the user
+omits the keyword.  ``GraphPattern.effective_match_mode(dialect)`` resolves
+to the dialect default.  The generator omits the keyword when the explicit
+value matches the dialect default, and the cross-dialect transpile pipeline
+materializes source-dialect defaults when source and target disagree
+(no-op today because all dialects use DifferentEdgesMatchMode).
 """
 
 import unittest
@@ -23,17 +26,16 @@ def _graph_pattern(tree: ast.GqlProgram) -> ast.GraphPattern:
     return next(iter(tree.find_all(ast.GraphPattern)))
 
 
-class TestDefaultMatchModeParsing(unittest.TestCase):
-    """Base parser injects DIFFERENT EDGES when no match mode is specified."""
+class TestMatchModeParsingLossless(unittest.TestCase):
+    """Parser leaves match_mode = None when the user omits the keyword."""
 
-    def test_implicit_different_edges(self):
+    def test_implicit_is_none(self):
         gp = _graph_pattern(_parse_gql("MATCH (n)-[e]->(m) RETURN n"))
-        self.assertIsInstance(gp.match_mode, ast.DifferentEdgesMatchMode)
-        self.assertEqual(gp.match_mode.mode, ast.DifferentEdgesMatchMode.Mode.EDGES)
+        self.assertIsNone(gp.match_mode)
 
-    def test_optional_match(self):
+    def test_optional_match_implicit_is_none(self):
         gp = _graph_pattern(_parse_gql("OPTIONAL MATCH (n)-[e]->(m) RETURN n"))
-        self.assertIsInstance(gp.match_mode, ast.DifferentEdgesMatchMode)
+        self.assertIsNone(gp.match_mode)
 
     def test_explicit_different_edges_preserved(self):
         gp = _graph_pattern(_parse_gql("MATCH DIFFERENT EDGES (n)-[e]->(m) RETURN n"))
@@ -44,16 +46,40 @@ class TestDefaultMatchModeParsing(unittest.TestCase):
         self.assertIsInstance(gp.match_mode, ast.RepeatableElementsMatchMode)
 
 
-class TestDefaultMatchModeGeneration(unittest.TestCase):
+class TestEffectiveMatchMode(unittest.TestCase):
+    """`effective_match_mode` resolves explicit-or-default under a dialect."""
+
+    def test_implicit_returns_dialect_default(self):
+        d = Dialect()
+        gp = _graph_pattern(_parse_gql("MATCH (n) RETURN n"))
+        self.assertIs(gp.effective_match_mode(d), ast.DifferentEdgesMatchMode)
+
+    def test_explicit_repeatable_returned(self):
+        d = Dialect()
+        gp = _graph_pattern(_parse_gql("MATCH REPEATABLE ELEMENTS (n) RETURN n"))
+        self.assertIs(gp.effective_match_mode(d), ast.RepeatableElementsMatchMode)
+
+
+class TestMatchModeGeneration(unittest.TestCase):
     """Generator omits match mode when it matches the dialect default."""
 
     def setUp(self):
         self.dialect = Dialect()
 
-    def test_default_omitted(self):
+    def test_implicit_not_emitted(self):
         tree = _parse_gql("MATCH (n)-[e]->(m) RETURN n")
         output = self.dialect.generate(tree)
         self.assertNotIn("DIFFERENT EDGES", output)
+        self.assertNotIn("REPEATABLE ELEMENTS", output)
+
+    def test_explicit_default_preserved(self):
+        # The parser is lossless, so the generator emits exactly what the
+        # user wrote.  An explicit DIFFERENT EDGES keyword (equal to the
+        # dialect default) is preserved in the output.  Cross-dialect
+        # semantic preservation is handled separately via materialization.
+        tree = _parse_gql("MATCH DIFFERENT EDGES (n)-[e]->(m) RETURN n")
+        output = self.dialect.generate(tree)
+        self.assertIn("DIFFERENT EDGES", output)
 
     def test_non_default_emitted(self):
         tree = _parse_gql("MATCH REPEATABLE ELEMENTS (n)-[e]->(m) RETURN n")

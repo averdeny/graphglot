@@ -14,6 +14,9 @@ from enum import Enum, auto
 
 from graphglot import features as F
 
+if t.TYPE_CHECKING:
+    from graphglot.dialect.base import Dialect
+
 from .base import Expression, field, model_validator, nonstandard
 
 
@@ -945,6 +948,16 @@ class GraphPattern(Expression):
     keep_clause: KeepClause | None
     graph_pattern_where_clause: GraphPatternWhereClause | None
 
+    def effective_match_mode(self, dialect: Dialect) -> type[MatchMode]:
+        """Resolve the effective match-mode type under *dialect*.
+
+        Returns the class of the user-written match mode when present,
+        otherwise the dialect's implementation-defined default.
+        """
+        if self.match_mode is not None:
+            return type(self.match_mode)
+        return dialect.DEFAULT_MATCH_MODE
+
 
 class MatchMode(Expression):
     """Semantic marker for <match mode> in the Abstract Syntax Tree (AST)."""
@@ -970,6 +983,26 @@ class PathPattern(Expression):
         if isinstance(self.path_pattern_prefix, PathSearchPrefix):
             self.require_feature(F.G005)
         return self
+
+    def effective_path_mode(self, dialect: Dialect) -> PathMode.Mode:
+        """Resolve the effective path mode under *dialect*.
+
+        Returns the user-written mode — either the one wrapped in a
+        ``PathModePrefix`` (``MATCH TRAIL (a)-[r]-(b)``) or the one
+        attached to a ``PathSearchPrefix`` variant such as
+        ``AllPathSearch`` (``MATCH ALL TRAIL (a)-[r]-(b)``) — and falls
+        back to the dialect's implementation-defined default otherwise.
+        """
+        prefix = self.path_pattern_prefix
+        if isinstance(prefix, PathModePrefix):
+            return prefix.path_mode.mode
+        # PathSearchPrefix is a marker class; its concrete subclasses
+        # (AllPathSearch, AnyPathSearch, the four Shortest variants) all
+        # carry an optional `path_mode` field.
+        inner: PathMode | None = getattr(prefix, "path_mode", None)
+        if inner is not None:
+            return inner.mode
+        return dialect.DEFAULT_PATH_MODE
 
 
 class PathVariableDeclaration(Expression):
@@ -1260,6 +1293,16 @@ class SortSpecification(Expression):
         if self.sort_key.find_first(AggregateFunction) is not None:
             self.require_feature(F.GF20)
         return self
+
+    def effective_order_direction(self, dialect: Dialect) -> OrderingSpecification.Order:
+        """Resolve the effective sort direction (ASC/DESC) under *dialect*.
+
+        Returns the user-written direction when ``ordering_specification``
+        is set, otherwise the dialect's implementation-defined default.
+        """
+        if self.ordering_specification is not None:
+            return self.ordering_specification.ordering_specification
+        return dialect.DEFAULT_ORDER_DIRECTION
 
 
 class OrderingSpecification(Expression):

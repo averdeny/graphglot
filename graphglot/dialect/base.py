@@ -9,7 +9,7 @@ import typing as t
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from graphglot.ast.expressions import DifferentEdgesMatchMode
+from graphglot.ast.expressions import DifferentEdgesMatchMode, OrderingSpecification, PathMode
 from graphglot.features import ALL_FEATURES, Feature, get_feature
 from graphglot.generator import Generator as BaseGenerator
 from graphglot.lexer import Lexer as BaseLexer, TokenType
@@ -203,12 +203,43 @@ class Dialect(metaclass=_Dialect):
     """GQL features supported by the dialect (core + optional)."""
 
     DEFAULT_MATCH_MODE: t.ClassVar[type] = DifferentEdgesMatchMode
-    """Implementation-defined default match mode (ISO/IEC 39075 ID086).
+    """Match mode assumed when the query omits the keyword.
 
-    When the parsed AST carries a match mode whose type matches the write
-    dialect's default, the generator omits it (it is implicit).  When they
-    differ, the generator emits it explicitly — and if the target dialect
-    does not support the required feature the transpilation fails.
+    ``DifferentEdgesMatchMode`` forbids a single path binding from
+    repeating the same edge — the common graph-query semantics.  A
+    dialect whose engine applies different semantics must override.
+
+    Resolved at inspection time via
+    :meth:`GraphPattern.effective_match_mode` and inserted into
+    cross-dialect output by
+    :func:`~graphglot.transformations.materialize_implementation_defaults`
+    when source and target dialects disagree.
+    """
+
+    DEFAULT_PATH_MODE: t.ClassVar[PathMode.Mode] = PathMode.Mode.TRAIL
+    """Path mode assumed when the query omits the keyword.
+
+    ``TRAIL`` forbids repeating the same edge within a single path
+    binding — the common graph-query semantics.  A dialect whose engine
+    applies different semantics must override.
+
+    Resolved at inspection time via
+    :meth:`PathPattern.effective_path_mode` and inserted into
+    cross-dialect output by
+    :func:`~graphglot.transformations.materialize_implementation_defaults`
+    when source and target dialects disagree.
+    """
+
+    DEFAULT_ORDER_DIRECTION: t.ClassVar[OrderingSpecification.Order] = (
+        OrderingSpecification.Order.ASC
+    )
+    """Sort direction assumed when ``ORDER BY`` omits the keyword.
+
+    Resolved at inspection time via
+    :meth:`SortSpecification.effective_order_direction` and inserted into
+    cross-dialect output by
+    :func:`~graphglot.transformations.materialize_implementation_defaults`
+    when source and target dialects disagree.
     """
 
     TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
