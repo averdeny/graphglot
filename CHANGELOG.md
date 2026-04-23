@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.10.0 (2026-04-23)
+
+### Features
+
+- Add uniform pattern for implementation-defined defaults
+  ([`1e67c7d`](https://github.com/averdeny/graphglot/commit/1e67c7d7f4c1d08dfb1a1a8b1324c71d681adf0c))
+
+
 ## v0.9.4 (2026-04-16)
 
 ### Bug Fixes
