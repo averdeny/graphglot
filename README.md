@@ -1,6 +1,7 @@
 # GraphGlot
 
-![CI](https://github.com/averdeny/graphglot/actions/workflows/release.yml/badge.svg)
+[![CI](https://github.com/averdeny/graphglot/actions/workflows/release.yml/badge.svg)](https://github.com/averdeny/graphglot/actions/workflows/release.yml)
+[![Security](https://github.com/averdeny/graphglot/actions/workflows/security.yml/badge.svg)](https://github.com/averdeny/graphglot/actions/workflows/security.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/averdeny/graphglot/blob/main/LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
