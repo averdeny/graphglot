@@ -357,3 +357,36 @@ class TestHighWaterMarkErrors:
         info = _parse_error_details("MATCH (n) RETURN n,")
         # col 11 is where RETURN starts — the error must be deeper
         assert info["col"] > 11
+
+    def test_table_in_null_predicate_points_deep(self):
+        """RETURN TABLE { ... } IS NOT NULL — table-binding refs are not value
+        expression primaries (ISO 39075 §19.5), so the null predicate rejects
+        them. Error should point at or past IS, not to the program-level frame.
+        """
+        info = _parse_error_details("RETURN TABLE { MATCH (n) RETURN n } IS NOT NULL AS r")
+        # `}` ends at col 35; a useful deep frame must be at IS (col 37) or past it.
+        assert info["col"] > 35, (
+            f"expected deep frame, got col {info['col']}: {info['description']}"
+        )
+        assert "program activity session close command" not in info["description"].lower()
+
+    def test_list_concat_in_null_predicate_points_deep(self):
+        """RETURN [1] || [2,3] IS NOT NULL — list concat is a common value
+        expression, not a value expression primary, so the null predicate
+        rejects it. Error should point at or past IS.
+        """
+        info = _parse_error_details("RETURN [1] || [2,3] IS NOT NULL")
+        # `]` of [2,3] ends at col 19; deep frame should be at IS (col 21) or past it.
+        assert info["col"] > 19, (
+            f"expected deep frame, got col {info['col']}: {info['description']}"
+        )
+        assert "program activity session close command" not in info["description"].lower()
+
+    def test_outermost_message_preserved_when_nothing_penetrates(self):
+        """Regression guard for the `_furthest_index > start_index` gate:
+        when no top-level alternative advances past where it began, the
+        program-root expectation is still what surfaces (rather than
+        whatever deepest-frame the gate would otherwise prefer).
+        """
+        info = _parse_error_details("~~~")
+        assert "program activity" in info["description"].lower()

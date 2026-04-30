@@ -341,6 +341,11 @@ class Parser:
             return node
 
         self._retreat(start_index)
+        # If any alternative penetrated past this point before failing, that
+        # frame's expectation is more specific than the generic "Expected X
+        # or Y" we'd construct here. Surface it instead.
+        if self._furthest_error and self._furthest_index > start_index:
+            raise self._furthest_error
         if not message:
             descriptions = [d for p in parsers if (d := _parser_description(p))]
             if descriptions:
