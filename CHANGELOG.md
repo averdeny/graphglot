@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v0.11.0 (2026-04-30)
+
+### Bug Fixes
+
+- **generator**: Emit IS LABELED keyword form correctly
+  ([`fa90e94`](https://github.com/averdeny/graphglot/commit/fa90e940777e9cfd1eedf1b76bc29a89fa2510a5))
+
+- **parser**: Accept positive IS LABELED form per ISO 39075 §19.9
+  ([`2439bd5`](https://github.com/averdeny/graphglot/commit/2439bd59344586365765ca7c9121ba8e7654c451))
+
+- **parser**: Surface deepest parse-error frame on backtracking failure
+  ([`dfb62ad`](https://github.com/averdeny/graphglot/commit/dfb62adbbaa9a12ce132406acb2c136db8c9d3d4))
+
+### Features
+
+- **cypher**: Raise FeatureError for GQL-only constructs instead of leaking exceptions
+  ([`9661a31`](https://github.com/averdeny/graphglot/commit/9661a3193f771830979459043d6a2c7d7ef6535c))
+
+- **generator**: Add fullgql generators for GraphTypeSource AS COPY OF
+  ([`92d5dcf`](https://github.com/averdeny/graphglot/commit/92d5dcf0e2be97458e540ec6e6d874ab99c26b0d))
+
+- **generator**: Add fullgql generators for path multiset alternation and union
+  ([`589960c`](https://github.com/averdeny/graphglot/commit/589960cfdea932e5b8ba41a2cb26d275aa48acb3))
+
+
 ## v0.10.0 (2026-04-23)
 
 ### Features
