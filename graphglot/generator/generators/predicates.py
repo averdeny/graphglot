@@ -128,7 +128,7 @@ def generate_labeled_predicate(gen: Generator, expr: ast.LabeledPredicate) -> Fr
 
 @generates(ast.LabeledPredicatePart2)
 def generate_labeled_predicate_part_2(gen: Generator, expr: ast.LabeledPredicatePart2) -> Fragment:
-    inner = expr.is_labeled_or_colon
+    inner = expr.is_labeled_or_colon.is_labeled_or_colon
     if isinstance(inner, ast.IsLabeledOrColon._IsNotLabeled):
         parts: list[str | Fragment] = ["IS"]
         if inner.not_:

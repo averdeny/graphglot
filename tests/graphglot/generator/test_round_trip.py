@@ -82,6 +82,9 @@ EXPRESSION_QUERIES = [
     "MATCH (n) WHERE n.active = FALSE RETURN n",
     "MATCH (n) WHERE n.value_ IS NULL RETURN n",
     "MATCH (n) WHERE n.value_ IS NOT NULL RETURN n",
+    "MATCH (n) WHERE n IS LABELED Person RETURN n",
+    "MATCH (n) WHERE n IS NOT LABELED Person RETURN n",
+    "MATCH (n) WHERE n :Person RETURN n",
 ]
 
 # Aggregate queries
