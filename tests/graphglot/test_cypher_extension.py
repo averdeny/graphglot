@@ -581,6 +581,77 @@ class TestFeatureGating(unittest.TestCase):
             d.parse("MATCH (n) WITH n.name AS name RETURN name")
 
 
+class TestCypherUnsupportedConstructs(unittest.TestCase):
+    """GQL-only constructs surface as FeatureError (not raw exceptions) under Cypher generation."""
+
+    def setUp(self):
+        self.fullgql = Dialect.get_or_raise("fullgql")
+        self.neo4j = Dialect.get_or_raise("neo4j")
+
+    def _assert_feature_error_in_neo4j_generate(self, expression, expected_name):
+        with self.assertRaises(FeatureError) as cm:
+            self.neo4j.generate(expression)
+        self.assertIn(expected_name, str(cm.exception))
+
+    def _assert_query_rejected_by_neo4j(self, query, expected_name):
+        (expression,) = self.fullgql.parse(query)
+        self._assert_feature_error_in_neo4j_generate(expression, expected_name)
+
+    def test_tilde_edge_directions(self):
+        # The undirected/tilde edge syntax is GQL-only — Cypher's
+        # AbbreviatedEdgePattern map covers only `<--`, `-->`, `--`, `<-->`.
+        cases = [
+            ("MATCH (a)~(b) RETURN a", "TILDE"),
+            ("MATCH (a)<~(b) RETURN a", "LEFT_ARROW_TILDE"),
+            ("MATCH (a)~>(b) RETURN a", "TILDE_RIGHT_ARROW"),
+        ]
+        for query, name in cases:
+            with self.subTest(query=query):
+                self._assert_query_rejected_by_neo4j(query, name)
+
+    def test_simplified_defaulting_path_patterns(self):
+        # All seven SimplifiedDefaulting* classes are GQL-only direction
+        # qualifiers without Cypher analogues. They're built directly here
+        # because reaching them from concrete syntax requires the broader
+        # SimplifiedContents subtree, which isn't fully implemented yet.
+        classes = [
+            ast.SimplifiedDefaultingLeft,
+            ast.SimplifiedDefaultingUndirected,
+            ast.SimplifiedDefaultingRight,
+            ast.SimplifiedDefaultingLeftOrUndirected,
+            ast.SimplifiedDefaultingUndirectedOrRight,
+            ast.SimplifiedDefaultingLeftOrRight,
+            ast.SimplifiedDefaultingAnyDirection,
+        ]
+        for cls in classes:
+            with self.subTest(cls=cls.__name__):
+                instance = cls._construct(simplified_contents=ast.SimplifiedContents._construct())
+                self._assert_feature_error_in_neo4j_generate(instance, cls.__name__)
+
+    def test_graph_type_source_as_copy_of(self):
+        instance = ast.GraphTypeSource._AsCopyOfGraphType._construct(
+            as_=False, copy_of_graph_type=ast.CopyOfGraphType._construct()
+        )
+        self._assert_feature_error_in_neo4j_generate(instance, "AsCopyOfGraphType")
+
+    def test_graph_type_source_as_nested(self):
+        instance = ast.GraphTypeSource._AsNestedGraphTypeSpecification._construct(
+            as_=False,
+            nested_graph_type_specification=ast.NestedGraphTypeSpecification._construct(),
+        )
+        self._assert_feature_error_in_neo4j_generate(instance, "AsNestedGraphTypeSpecification")
+
+    def test_path_multiset_alternation(self):
+        self._assert_query_rejected_by_neo4j(
+            "MATCH p = () -[]-> () |+| () -[]-> () RETURN p", "PathMultisetAlternation"
+        )
+
+    def test_path_pattern_union(self):
+        self._assert_query_rejected_by_neo4j(
+            "MATCH p = () -[]-> () | () -[]-> () RETURN p", "PathPatternUnion"
+        )
+
+
 # =============================================================================
 # Neo4j backward compatibility tests
 # =============================================================================

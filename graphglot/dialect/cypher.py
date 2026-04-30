@@ -52,7 +52,7 @@ from graphglot.ast.cypher import (
 )
 from graphglot.dialect.base import Dialect
 from graphglot.dialect.cypher_features import ALL_CYPHER_FEATURES
-from graphglot.error import ParseError
+from graphglot.error import FeatureError, ParseError
 from graphglot.features import Feature
 from graphglot.generator import Generator as BaseGenerator, func_generators
 from graphglot.generator.fragment import Fragment
@@ -2466,7 +2466,19 @@ def _generate_cypher_abbreviated_edge(
         ast.AbbreviatedEdgePattern.PatternType.MINUS_SIGN: "--",
         ast.AbbreviatedEdgePattern.PatternType.LEFT_MINUS_RIGHT: "<-->",
     }
+    if expr.pattern not in pattern_map:
+        raise FeatureError(
+            f"Cypher dialects have no analogue for {expr.pattern.name} "
+            f"(undirected/tilde edge syntax is GQL-only)"
+        )
     return Fragment(pattern_map[expr.pattern])
+
+
+def _generate_cypher_unsupported_construct(gen: BaseGenerator, expr: ast.Expression) -> Fragment:
+    """Reject GQL-only constructs that have no Cypher analogue."""
+    raise FeatureError(
+        f"Cypher dialects have no analogue for {type(expr).__name__} (GQL-only construct)"
+    )
 
 
 # --- Cypher temporal generators (lowercase output) ---
@@ -3584,6 +3596,25 @@ class CypherDialect(Dialect):
             CypherSetMapAppendItem: _generate_cypher_set_map_append_item,
             CypherSetPropertyFromExprItem: _generate_cypher_set_property_from_expr_item,
             CypherReduce: _generate_cypher_reduce,
+            # GQL-only constructs with no Cypher analogue: stub with a
+            # FeatureError so transpile reports a clean cause instead of
+            # a raw NotImplementedError/KeyError from the dispatcher.
+            **dict.fromkeys(
+                (
+                    ast.SimplifiedDefaultingLeft,
+                    ast.SimplifiedDefaultingUndirected,
+                    ast.SimplifiedDefaultingRight,
+                    ast.SimplifiedDefaultingLeftOrUndirected,
+                    ast.SimplifiedDefaultingUndirectedOrRight,
+                    ast.SimplifiedDefaultingLeftOrRight,
+                    ast.SimplifiedDefaultingAnyDirection,
+                    ast.GraphTypeSource._AsCopyOfGraphType,
+                    ast.GraphTypeSource._AsNestedGraphTypeSpecification,
+                    ast.PathMultisetAlternation,
+                    ast.PathPatternUnion,
+                ),
+                _generate_cypher_unsupported_construct,
+            ),
             # Per-subclass Func generators (auto-derived from FUNCTIONS)
             **func_generators(_CYPHER_FUNCTIONS),
         }
