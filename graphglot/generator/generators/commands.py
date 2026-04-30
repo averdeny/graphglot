@@ -391,6 +391,22 @@ def generate_graph_type_source(gen: Generator, expr: ast.GraphTypeSource) -> Fra
     return gen.dispatch(expr.graph_type_source)
 
 
+@generates(ast.GraphTypeSource._AsCopyOfGraphType)
+def generate_graph_type_source_as_copy_of(
+    gen: Generator, expr: ast.GraphTypeSource._AsCopyOfGraphType
+) -> Fragment:
+    parts: list[str | Fragment] = []
+    if expr.as_:
+        parts.append("AS")
+    parts.append(gen.dispatch(expr.copy_of_graph_type))
+    return gen.seq(*parts)
+
+
+@generates(ast.CopyOfGraphType)
+def generate_copy_of_graph_type(gen: Generator, expr: ast.CopyOfGraphType) -> Fragment:
+    return gen.seq("COPY OF", gen.dispatch(expr.copy_of_graph_type))
+
+
 @generates(ast.FocusedLinearDataModifyingStatementBody)
 def generate_focused_linear_data_modifying_statement_body(
     gen: Generator, expr: ast.FocusedLinearDataModifyingStatementBody

@@ -264,6 +264,7 @@ DDL_QUERIES = [
     "DROP GRAPH my_graph",
     "DROP PROPERTY GRAPH IF EXISTS my_graph",
     "CREATE PROPERTY GRAPH TYPE my_type LIKE CURRENT_GRAPH",
+    "CREATE PROPERTY GRAPH TYPE my_type AS COPY OF other_type",
     "DROP GRAPH TYPE my_type",
 ]
 
