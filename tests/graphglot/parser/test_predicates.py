@@ -3,6 +3,7 @@
 import unittest
 
 from graphglot import ast
+from graphglot.error import ParseError
 
 from .helpers import ParserTestHelper
 
@@ -74,6 +75,35 @@ class TestPredicates(unittest.TestCase):
             expr.labeled_predicate_part_2,
             ast.LabeledPredicatePart2,
         )
+
+    def test_labeled_predicate_with_keyword(self):
+        query = "n IS LABELED Person"
+        expr = self.helper.parse_single(query, ast.LabeledPredicate)
+        self.assertIsInstance(expr, ast.LabeledPredicate)
+        inner = expr.labeled_predicate_part_2.is_labeled_or_colon.is_labeled_or_colon
+        self.assertIsInstance(inner, ast.IsLabeledOrColon._IsNotLabeled)
+        self.assertFalse(inner.not_)
+
+    def test_labeled_predicate_negated_with_keyword(self):
+        query = "n IS NOT LABELED Person"
+        expr = self.helper.parse_single(query, ast.LabeledPredicate)
+        self.assertIsInstance(expr, ast.LabeledPredicate)
+        inner = expr.labeled_predicate_part_2.is_labeled_or_colon.is_labeled_or_colon
+        self.assertIsInstance(inner, ast.IsLabeledOrColon._IsNotLabeled)
+        self.assertTrue(inner.not_)
+
+    def test_labeled_predicate_with_complex_label_expression(self):
+        # Label expressions allow disjunction/conjunction/negation per ISO 39075 §16.8.
+        query = "n IS LABELED Person | Manager"
+        expr = self.helper.parse_single(query, ast.LabeledPredicate)
+        self.assertIsInstance(expr, ast.LabeledPredicate)
+
+    def test_bare_is_label_is_rejected(self):
+        # ISO 39075 §19.9 requires the LABELED keyword in the IS-prefixed
+        # form (only NOT is optional). The colon form (`n :Person`) is
+        # the alternative for omitting the keyword.
+        with self.assertRaises(ParseError):
+            self.helper.parse_single("n IS Person", ast.LabeledPredicate)
 
     def test_property_exists_predicate(self):
         query = "PROPERTY_EXISTS(n, name)"

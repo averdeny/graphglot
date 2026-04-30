@@ -2337,13 +2337,16 @@ def parse_not_null(parser: Parser) -> ast.NotNull:
 @parses(ast.IsLabeledOrColon)
 def parse_is_labeled_or_colon(parser: Parser) -> ast.IsLabeledOrColon:
     def _parse__is_not_labeled(parser: Parser) -> ast.IsLabeledOrColon._IsNotLabeled:
+        # Per ISO 39075 §19.9 the negation is optional but LABELED is
+        # required. The original code hardcoded NOT, which incorrectly
+        # rejected the positive `IS LABELED <label>` form.
         (
             _,
             not_,
             _,
         ) = parser.seq(
             TokenType.IS,
-            TokenType.NOT,
+            parser.opt(TokenType.NOT),
             TokenType.LABELED,
         )
         return ast.IsLabeledOrColon._IsNotLabeled(
