@@ -170,6 +170,18 @@ def generate_path_term(gen: Generator, expr: ast.PathTerm) -> Fragment:
     return gen.join([gen.dispatch(f) for f in expr.factors], sep=" ")
 
 
+@generates(ast.PathMultisetAlternation)
+def generate_path_multiset_alternation(
+    gen: Generator, expr: ast.PathMultisetAlternation
+) -> Fragment:
+    return gen.join([gen.dispatch(t) for t in expr.list_path_term], sep=" |+| ")
+
+
+@generates(ast.PathPatternUnion)
+def generate_path_pattern_union(gen: Generator, expr: ast.PathPatternUnion) -> Fragment:
+    return gen.join([gen.dispatch(t) for t in expr.list_path_term], sep=" | ")
+
+
 @generates(ast.QuantifiedPathPrimary)
 def generate_quantified_path_primary(gen: Generator, expr: ast.QuantifiedPathPrimary) -> Fragment:
     return gen.seq(gen.dispatch(expr.path_primary), gen.dispatch(expr.graph_pattern_quantifier))

@@ -85,6 +85,8 @@ EXPRESSION_QUERIES = [
     "MATCH (n) WHERE n IS LABELED Person RETURN n",
     "MATCH (n) WHERE n IS NOT LABELED Person RETURN n",
     "MATCH (n) WHERE n :Person RETURN n",
+    "MATCH p = () -[]-> () |+| () -[]-> () RETURN p",
+    "MATCH p = () -[]-> () | () -[]-> () RETURN p",
 ]
 
 # Aggregate queries
