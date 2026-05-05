@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v0.11.1 (2026-05-05)
+
+### Bug Fixes
+
+- **generator**: Emit '&' between labels in LabelSetSpecification per ISO 39075
+  ([`9770b2a`](https://github.com/averdeny/graphglot/commit/9770b2a8fa15b1a8e6f96494f60194e1eb630399))
+
+### Chores
+
+- Bump pygments, pytest, requests to fix CVEs
+  ([`69eb12e`](https://github.com/averdeny/graphglot/commit/69eb12e636f2c029bbeb7504d5eee858d93422db))
+
+### Documentation
+
+- Add Security workflow badge to README
+  ([`ce96c79`](https://github.com/averdeny/graphglot/commit/ce96c79022c3edbdc468f71b49d9db8f386db929))
+
+
 ## v0.11.0 (2026-04-30)
 
 ### Bug Fixes
