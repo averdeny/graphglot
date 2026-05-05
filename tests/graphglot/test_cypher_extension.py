@@ -4505,3 +4505,68 @@ class TestCypherStringEscaping(unittest.TestCase):
     def test_printable_passthrough(self):
         """Regular printable characters pass through unchanged."""
         self.assertEqual(self._gen_string("hello world"), "'hello world'")
+
+
+class TestNeo4jToFullgqlMultiLabel(unittest.TestCase):
+    """Cypher multi-label patterns must transpile to GQL-spec-compliant fullgql.
+
+    Per ISO 39075 §16.7, fullgql joins labels in a LabelSetSpecification with
+    AMPERSAND. The Cypher dialect accepts colon-chaining and ampersand both;
+    when generating fullgql the output must use ampersand so that the fullgql
+    parser can re-parse it.
+    """
+
+    def setUp(self):
+        self.neo4j = Dialect.get_or_raise("neo4j")
+        self.fullgql = Dialect.get_or_raise("fullgql")
+
+    def _transpile(self, cypher_query: str) -> str:
+        ast_nodes = self.neo4j.parse(cypher_query)
+        return self.fullgql.generate(ast_nodes[0])
+
+    def test_two_labels_no_var(self):
+        out = self._transpile("CREATE (:Foo:Bar)")
+        self.assertIn("&", out)
+        self.fullgql.parse(out)
+
+    def test_three_labels_no_var(self):
+        out = self._transpile("CREATE (:A:B:C)")
+        self.assertIn("&", out)
+        self.fullgql.parse(out)
+
+    def test_labels_with_variable(self):
+        out = self._transpile("CREATE (a:Foo:Bar)")
+        self.assertIn("&", out)
+        self.fullgql.parse(out)
+
+    def test_labels_with_relationship(self):
+        out = self._transpile("CREATE (:A:B)-[:KNOWS]->(:C:D)")
+        self.assertEqual(out.count("&"), 2)
+        self.fullgql.parse(out)
+
+    def test_edge_multi_label(self):
+        out = self._transpile("CREATE (a)-[r:A:B]->(b)")
+        self.assertIn("&", out)
+        self.fullgql.parse(out)
+
+
+class TestCypherLabelSetGeneration(unittest.TestCase):
+    """Cypher dialect output keeps colon-chained labels.
+
+    Regression guard: the base generator emits ampersand for GQL-spec
+    compliance, but Cypher dialect output must remain colon-chained so it
+    stays compatible with Cypher engines.
+    """
+
+    def setUp(self):
+        self.neo4j = Dialect.get_or_raise("neo4j")
+
+    def test_two_labels_emit_colon_chain(self):
+        out = self.neo4j.generate(self.neo4j.parse("CREATE (:Foo:Bar)")[0])
+        self.assertIn(":Foo:Bar", out)
+        self.assertNotIn("&", out)
+
+    def test_three_labels_emit_colon_chain(self):
+        out = self.neo4j.generate(self.neo4j.parse("CREATE (a:A:B:C)")[0])
+        self.assertIn(":A:B:C", out)
+        self.assertNotIn("&", out)

@@ -290,8 +290,7 @@ def generate_label_name(gen: Generator, expr: ast.LabelName) -> Fragment:
 
 @generates(ast.LabelSetSpecification)
 def generate_label_set_specification(gen: Generator, expr: ast.LabelSetSpecification) -> Fragment:
-    # Labels are separated by colons, with colon prefix
-    return Fragment(":" + ":".join(str(gen.dispatch(name)) for name in expr.list_label_name))
+    return Fragment(":" + "&".join(str(gen.dispatch(name)) for name in expr.list_label_name))
 
 
 @generates(ast.WildcardLabel)

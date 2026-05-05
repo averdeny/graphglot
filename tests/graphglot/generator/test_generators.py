@@ -585,7 +585,7 @@ class TestPatternGenerators(unittest.TestCase):
                 ast.LabelName(identifier=ast.Identifier(name="Active")),
             ]
         )
-        self.assertEqual(generate(expr), ":Person:Active")
+        self.assertEqual(generate(expr), ":Person&Active")
 
     def test_fixed_quantifier(self):
         expr = ast.FixedQuantifier(unsigned_integer=ast.UnsignedInteger(value=3))

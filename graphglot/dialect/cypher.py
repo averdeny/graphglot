@@ -2302,6 +2302,13 @@ def _generate_cypher_label_term(gen: BaseGenerator, expr: ast.LabelTerm) -> Frag
     return gen.join([gen.dispatch(f) for f in expr.label_factors], sep=":")
 
 
+def _generate_cypher_label_set_specification(
+    gen: BaseGenerator, expr: ast.LabelSetSpecification
+) -> Fragment:
+    """Generate ``:A:B:C`` for Cypher CREATE/INSERT (base GQL uses ``&``)."""
+    return Fragment(":" + ":".join(str(gen.dispatch(name)) for name in expr.list_label_name))
+
+
 def _generate_cypher_subscript(gen: BaseGenerator, expr: CypherSubscriptExpression) -> Fragment:
     return gen.seq(gen.dispatch(expr.base), "[", gen.dispatch(expr.index), "]", sep="")
 
@@ -3550,6 +3557,7 @@ class CypherDialect(Dialect):
             ast.CastSpecification: _generate_cypher_cast_specification,
             ast.IsLabelExpression: _generate_cypher_is_label_expression,
             ast.LabelTerm: _generate_cypher_label_term,
+            ast.LabelSetSpecification: _generate_cypher_label_set_specification,
             ast.AbbreviatedEdgePattern: _generate_cypher_abbreviated_edge,
             ast.ModulusExpression: _generate_cypher_modulus,
             ast.PowerFunction: _generate_cypher_power,
