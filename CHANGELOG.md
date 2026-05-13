@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.12.0 (2026-05-13)
+
+### Chores
+
+- Bump urllib3 to 2.7.0 to fix CVEs
+  ([`ce7d4d6`](https://github.com/averdeny/graphglot/commit/ce7d4d6f89446bb2da74202660c7fd8cd03b278e))
+
+### Features
+
+- **dialect**: Move with_to_next to GqlDialect write-side
+  ([`106afcb`](https://github.com/averdeny/graphglot/commit/106afcb9dd67e22bfda3f11371ff411af16f64e8))
+
+- **transformations**: Add next_to_with and WRITE_TRANSFORMATIONS hook
+  ([`febb749`](https://github.com/averdeny/graphglot/commit/febb749da3f51513af88d2af1afef558a96bb966))
+
+
 ## v0.11.1 (2026-05-05)
 
 ### Bug Fixes
