@@ -245,6 +245,16 @@ class Dialect(metaclass=_Dialect):
     TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
     """Ordered list of AST transformations to apply when normalizing parsed trees."""
 
+    WRITE_TRANSFORMATIONS: t.ClassVar[list[Transformation]] = []
+    """Ordered list of AST transformations applied immediately before generation.
+
+    Mirrors :attr:`TRANSFORMATIONS` (read-side) on the write side: each entry
+    specializes the AST for this dialect's preferred surface syntax (e.g.
+    ``next_to_with`` lowers GQL ``NEXT`` chains into Cypher ``WITH`` clauses
+    when generating with a Cypher target).  Applied to a deep copy so the
+    caller's tree is preserved.
+    """
+
     NON_RESERVED_WORDS: t.ClassVar[set[TokenType]] = {
         TokenType.ACYCLIC,
         TokenType.BINDING,
@@ -384,7 +394,18 @@ class Dialect(metaclass=_Dialect):
         return self.generator_class(**{"dialect": self, **opts})
 
     def generate(self, expression: Expression, copy: bool = False, **opts) -> str:
-        """Generate a GQL string from an expression."""
+        """Generate a GQL string from an expression.
+
+        Applies :attr:`WRITE_TRANSFORMATIONS` (on a deep copy) before
+        dispatching to the dialect generator.  No-op when the dialect
+        declares no write transforms.
+        """
+        if self.WRITE_TRANSFORMATIONS:
+            expression = expression.deep_copy()
+            for fn in self.WRITE_TRANSFORMATIONS:
+                expression = fn(expression)
+            # We already own a copy — don't ask the generator to make another.
+            copy = False
         return self.generator(**opts).generate(expression, copy=copy)
 
     def transform(self, expressions: list[Expression]) -> list[Expression]:

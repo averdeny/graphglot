@@ -229,12 +229,16 @@ class Neo4j(CypherDialect):
         | ALL_CYPHER_FEATURES
     )
 
+    # Neo4j accepts NEXT natively (GQ20), so we don't lower NEXT → WITH when
+    # generating Neo4j output.  The abstract :class:`CypherDialect` keeps
+    # ``next_to_with`` for targets that only understand WITH.
+    WRITE_TRANSFORMATIONS: t.ClassVar[list] = []
+
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         **CypherDialect.KEYWORD_OVERRIDES,
+        # Neo4j-specific spellings (other Cypher vendors differ):
         "STDDEV_SAMP": "STDEV",
         "STDDEV_POP": "STDEVP",
-        "ELEMENT_ID": "ELEMENTID",
-        "PATH_LENGTH": "LENGTH",
         "PERCENTILE_CONT": "PERCENTILECONT",
         "PERCENTILE_DISC": "PERCENTILEDISC",
     }
@@ -247,14 +251,8 @@ class Neo4j(CypherDialect):
         # https://neo4j.com/docs/cypher-manual/current/appendix/gql-conformance/analogous-cypher/
         # ----------------------------------------------------------------------
 
-        # GQL's open RECORD type is equivalent to the MAP type in Cypher.
-        # GQL's ELEMENT_ID() function is equivalent to Cypher's elementId() function
-        KEYWORDS.pop("ELEMENT_ID")
-        KEYWORDS["ELEMENTID"] = TokenType.ELEMENT_ID
-
-        # GQL's PATH_LENGTH() function is equivalent to Cypher's length() function.
-        KEYWORDS.pop("PATH_LENGTH")
-        KEYWORDS["LENGTH"] = TokenType.PATH_LENGTH
+        # ELEMENT_ID / PATH_LENGTH lexer remaps live on CypherDialect (universal
+        # Cypher spellings), inherited from CypherDialect.Lexer.KEYWORDS above.
 
         # GQL's STDEV_SAMP() function is equivalent to Cypher's stDev() function.
         # GQL's STDEV_POP() function is equivalent to Cypher's stDevP() function.

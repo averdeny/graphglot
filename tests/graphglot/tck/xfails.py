@@ -64,6 +64,42 @@ XFAIL_ROUNDTRIP: dict[str, XFailEntry] = {}
 
 XFAIL_ERROR: dict[str, XFailEntry] = {}
 
+# -- Inverse-transform xfails (cypher → with_to_next → GQL → next_to_with → cypher) -
+#
+# Categorized so future improvements can pick off entries one bucket at a time.
+XFAIL_INVERSE: dict[str, XFailEntry] = {
+    # WITH * (no WHERE) over an empty scope is silently dropped by with_to_next
+    # (transformations.py:_segments_introduce_bindings); the marker `RETURN *`
+    # would otherwise fail scope validation.  Inverse can't recover the
+    # original WITH *.
+    "Create3__2_WITH_CREATE": XFailEntry(
+        "WITH * over empty scope silently dropped — see transformations.py "
+        "_segments_introduce_bindings",
+        XFailCategory.UNSUPPORTED_FEATURE,
+    ),
+    "Create3__3_MATCH_CREATE_WITH_CREATE": XFailEntry(
+        "WITH * over empty scope silently dropped — see transformations.py "
+        "_segments_introduce_bindings",
+        XFailCategory.UNSUPPORTED_FEATURE,
+    ),
+    # WHERE mixes the alias (`name`) and the source expression (`a.name2`) for
+    # the same binding.  with_to_next's `_inline_aliases` is many-to-one here:
+    # both forms collapse to `a.name2`, and no inverse can recover which
+    # occurrence was originally the alias.  Semantically equivalent on both
+    # sides, but strict AST equality fails.
+    "WithWhere7__3_WHERE_sees_both_variable_bound_before_but_not_after_WITH_and": XFailEntry(
+        "Mixed alias/source reference in WHERE — alias inlining is many-to-one "
+        "(semantics preserved, AST shape lost)",
+        XFailCategory.UNSUPPORTED_FEATURE,
+    ),
+    # 40-level nested map literal hits CPython recursion limit inside with_to_next's
+    # tree walk.  Same root cause as test_tck_roundtrip.py's `_SKIP_SCOPE_IDS` list.
+    "Literals8__16_Return_40_deep_nested_maps": XFailEntry(
+        "Deep nested AST exceeds CPython recursion limit during transform",
+        XFailCategory.PARSER_TIMEOUT,
+    ),
+}
+
 
 def should_xfail_parse(test_id: str, query: str) -> XFailEntry | None:
     """Check if a parse test should be xfailed.

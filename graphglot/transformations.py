@@ -10,7 +10,12 @@ import typing as t
 
 from graphglot import ast
 from graphglot.ast.base import Expression
-from graphglot.ast.cypher import CypherWithStatement
+from graphglot.ast.cypher import (
+    CypherPatternComprehension,
+    CypherWithStatement,
+    ListComprehension,
+    ListPredicateFunction,
+)
 from graphglot.ast.functions import Size
 from graphglot.typing.types import TypeKind
 
@@ -85,6 +90,196 @@ def with_to_next(tree: Expression) -> Expression:
     return tree
 
 
+def next_to_with(tree: Expression) -> Expression:
+    """Inverse of :func:`with_to_next` — rebuild ``CypherWithStatement`` chains.
+
+    Walks the tree looking for ``StatementBlock`` nodes with a non-empty
+    ``list_next_statement`` and collapses each ``NEXT``-separated segment
+    back into a single ``SimpleLinearQueryStatement`` (or
+    ``SimpleLinearDataAccessingStatement``) whose clause list contains
+    ``CypherWithStatement`` boundaries between segments.
+
+    Recognizes the canonical GQL shapes that :func:`with_to_next` emits.
+    For each shape, reconstructs the matching Cypher form so that
+    ``next_to_with(with_to_next(ast)) == ast``.
+    """
+    for node in list(tree.dfs()):
+        if isinstance(node, ast.StatementBlock) and node.list_next_statement:
+            _collapse_next_chain(node)
+    return tree
+
+
+def _extract_segment(
+    segment: Expression,
+) -> tuple[list[ast.SimpleDataAccessingStatement], ast.PrimitiveResultStatement | None] | None:
+    """Extract the (statements, PRS) tuple from a NEXT-chain segment.
+
+    Handles both query-context segments (``CompositeQueryExpression``
+    wrapping an ``AmbientLinearQueryStatement``) and data-modifying
+    segments (``AmbientLinearDataModifyingStatementBody``).  Returns
+    ``None`` for any shape we don't know how to invert.
+    """
+    if isinstance(segment, ast.CompositeQueryExpression):
+        if segment.query_conjunction_elements:
+            return None
+        alqs = segment.left_composite_query_primary
+        if not isinstance(alqs, ast.AmbientLinearQueryStatement):
+            return None
+        inner = alqs.ambient_linear_query_statement
+        slqs_prs = (
+            ast.AmbientLinearQueryStatement._SimpleLinearQueryStatementPrimitiveResultStatement
+        )
+        if not isinstance(inner, slqs_prs):
+            return None
+        slqs = inner.simple_linear_query_statement
+        stmts: list[ast.SimpleDataAccessingStatement] = (
+            list(slqs.list_simple_query_statement) if slqs is not None else []
+        )
+        return stmts, inner.primitive_result_statement
+
+    if isinstance(segment, ast.AmbientLinearDataModifyingStatementBody):
+        sldas = segment.simple_linear_data_accessing_statement
+        return list(sldas.list_simple_data_accessing_statement), segment.primitive_result_statement
+
+    return None
+
+
+def _prs_to_with(
+    prs: ast.PrimitiveResultStatement,
+    where_clause: ast.WhereClause | None = None,
+) -> CypherWithStatement:
+    """Inverse of :func:`_with_to_prs` — convert a PRS into a CypherWithStatement."""
+    inner = prs.primitive_result_statement
+    if isinstance(inner, ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement):
+        return CypherWithStatement._construct(
+            return_statement_body=inner.return_statement.return_statement_body,
+            order_by_and_page_statement=inner.order_by_and_page_statement,
+            where_clause=where_clause,
+        )
+    raise ValueError(f"Unexpected PRS inner shape: {type(inner).__name__}")
+
+
+def _merge_with_and_filter(
+    stmts: list[ast.SimpleDataAccessingStatement],
+) -> list[ast.SimpleDataAccessingStatement]:
+    """Fold ``FilterStatement``s next to ``CypherWith(no WHERE)`` back into the WITH.
+
+    Inverse of the WHERE-stripping branches in ``with_to_next``:
+
+    - **Shape #2/#3** (no scope loss, transformations.py:150-154): the WHERE is
+      moved AFTER the WITH as a ``FilterStatement`` in the next segment.  After
+      collapse, the pattern is ``CypherWith(no WHERE) + FilterStatement``.
+    - **Shape #4** (scope loss, no ORDER BY, transformations.py:162-166): the
+      (alias-inlined) WHERE is moved BEFORE the WITH as a ``FilterStatement``
+      in the previous segment.  After collapse, the pattern is
+      ``FilterStatement + CypherWith(no WHERE)``.
+
+    The two shapes never compete for the same FilterStatement because the
+    forward transform places the filter on only one side per WITH boundary.
+    """
+    # Pass 1: merge ``CypherWith(no WHERE) + FilterStatement`` (shape #2/#3).
+    after: list[ast.SimpleDataAccessingStatement] = []
+    i = 0
+    while i < len(stmts):
+        cur = stmts[i]
+        nxt = stmts[i + 1] if i + 1 < len(stmts) else None
+        if (
+            isinstance(cur, CypherWithStatement)
+            and cur.where_clause is None
+            and isinstance(nxt, ast.FilterStatement)
+            and isinstance(nxt.filter_statement, ast.WhereClause)
+        ):
+            after.append(
+                CypherWithStatement._construct(
+                    return_statement_body=cur.return_statement_body,
+                    order_by_and_page_statement=cur.order_by_and_page_statement,
+                    where_clause=nxt.filter_statement,
+                )
+            )
+            i += 2
+            continue
+        after.append(cur)
+        i += 1
+
+    # Pass 2: merge ``FilterStatement + CypherWith(no WHERE)`` (shape #4).
+    before: list[ast.SimpleDataAccessingStatement] = []
+    i = 0
+    while i < len(after):
+        cur = after[i]
+        nxt = after[i + 1] if i + 1 < len(after) else None
+        if (
+            isinstance(cur, ast.FilterStatement)
+            and isinstance(cur.filter_statement, ast.WhereClause)
+            and isinstance(nxt, CypherWithStatement)
+            and nxt.where_clause is None
+        ):
+            before.append(
+                CypherWithStatement._construct(
+                    return_statement_body=nxt.return_statement_body,
+                    order_by_and_page_statement=nxt.order_by_and_page_statement,
+                    where_clause=cur.filter_statement,
+                )
+            )
+            i += 2
+            continue
+        before.append(cur)
+        i += 1
+
+    return before
+
+
+def _collapse_next_chain(sb: ast.StatementBlock) -> None:
+    """Collapse *sb*'s NEXT chain back into a single statement with WITH clauses.
+
+    Mutates *sb* in place: ``statement`` becomes the collapsed CQE or
+    ALDMSB and ``list_next_statement`` becomes ``None``.
+
+    Returns without mutating when any segment doesn't match a shape we
+    know how to invert (the StatementBlock is left as-is).
+    """
+    next_list = sb.list_next_statement
+    if not next_list:
+        return
+
+    # Reject any NEXT with a yield clause — those don't come from with_to_next.
+    if any(ns.yield_clause is not None for ns in next_list):
+        return
+
+    segments = [sb.statement] + [ns.statement for ns in next_list]
+    extracted = [_extract_segment(seg) for seg in segments]
+    if any(e is None for e in extracted):
+        return
+
+    # Non-final segments must have a PRS (that's what with_to_next emits to
+    # carry the projection of each intermediate WITH).
+    if any(e[1] is None for e in extracted[:-1]):  # type: ignore[index]
+        return
+
+    # Shape #1: each non-final segment's PRS becomes a CypherWithStatement.
+    combined_stmts: list[ast.SimpleDataAccessingStatement] = []
+    for stmts, prs in extracted[:-1]:  # type: ignore[misc]
+        combined_stmts.extend(stmts)
+        combined_stmts.append(_prs_to_with(prs))  # type: ignore[arg-type]
+
+    final_stmts, final_prs = extracted[-1]  # type: ignore[misc]
+    combined_stmts.extend(final_stmts)
+
+    # Shape #2/#3: merge ``CypherWith(no WHERE) + FilterStatement`` adjacencies
+    # back into a single ``CypherWith(where=...)``.  In with_to_next the WHERE
+    # is stripped off the WITH and emitted as the first statement of the next
+    # NEXT segment, so the inverse pattern is ``CypherWith`` immediately
+    # followed by ``FilterStatement``.
+    combined_stmts = _merge_with_and_filter(combined_stmts)
+
+    new_statement: ast.Statement = _build_segment_statement(combined_stmts, final_prs)
+
+    sb.__dict__["statement"] = new_statement
+    sb.__dict__["list_next_statement"] = None
+    new_statement._parent = sb
+    new_statement._arg_key = "statement"
+    new_statement._index = None
+
+
 def _replace_in_tree(node: Expression, block: ast.StatementBlock, tree: Expression) -> Expression:
     """Replace an ALQS (inside its CQE) with a StatementBlock in the tree."""
     # The ALQS sits inside a CQE as left_composite_query_primary.
@@ -137,14 +332,7 @@ def _rewrite_alqs(
 
             projected, alias_map = _analyze_projection(stmt)
             losing = (
-                set()
-                if projected is None
-                else {
-                    n.binding_variable.name
-                    for n in stmt.where_clause.dfs()
-                    if isinstance(n, ast.BindingVariableReference)
-                    and n.binding_variable.name not in projected
-                }
+                set() if projected is None else _free_where_names(stmt.where_clause) - projected
             )
 
             if not losing or _has_aggregation(stmt):
@@ -212,6 +400,67 @@ def _rewrite_alqs(
 # ===========================================================================
 # WITH...WHERE scope-loss helpers
 # ===========================================================================
+
+
+def _free_where_names(where: ast.WhereClause) -> set[str]:
+    """Free binding-variable names referenced in *where*.
+
+    Walks the WHERE clause scope-aware: ``BindingVariableReference``s nested
+    inside list-comprehension or list-predicate constructs (where the inner
+    ``variable`` shadows the outer scope) are excluded when their name
+    matches the local binder.
+
+    Used to compute ``losing`` in :func:`_rewrite_alqs` /
+    :func:`_rewrite_data_modifying_body` — a naive ``dfs`` over WHERE would
+    flag quantifier-bound variables like the ``x`` in
+    ``single(x IN list WHERE x = 2)`` as unprojected, falsely triggering the
+    scope-loss branch.
+    """
+    free: set[str] = set()
+    _collect_free_bvr_names(where, frozenset(), free)
+    return free
+
+
+def _collect_free_bvr_names(
+    node: Expression,
+    bound: frozenset[str],
+    out: set[str],
+) -> None:
+    """Recursive helper for :func:`_free_where_names`."""
+    # Constructs that locally bind a variable name within their predicate /
+    # where_clause / projection scope.  The ``source`` is in outer scope.
+    if isinstance(node, ListPredicateFunction):
+        _collect_free_bvr_names(node.source, bound, out)
+        inner = bound | {node.variable.name}
+        if node.predicate is not None:
+            _collect_free_bvr_names(node.predicate, inner, out)
+        return
+    if isinstance(node, ListComprehension):
+        _collect_free_bvr_names(node.source, bound, out)
+        inner = bound | {node.variable.name}
+        if node.where_clause is not None:
+            _collect_free_bvr_names(node.where_clause, inner, out)
+        if node.projection is not None:
+            _collect_free_bvr_names(node.projection, inner, out)
+        return
+    if isinstance(node, CypherPatternComprehension):
+        # Pattern itself introduces bindings (handled by parser); WHERE and
+        # projection share that scope.  For free-var purposes the inner refs
+        # are intra-pattern, so we just skip descending into pattern internals
+        # but visit the where/projection.
+        if node.where_clause is not None:
+            _collect_free_bvr_names(node.where_clause, bound, out)
+        _collect_free_bvr_names(node.projection, bound, out)
+        return
+
+    if isinstance(node, ast.BindingVariableReference):
+        name = node.binding_variable.name
+        if name not in bound:
+            out.add(name)
+        return
+
+    for child in node.children():
+        _collect_free_bvr_names(child, bound, out)
 
 
 def _has_aggregation(stmt: CypherWithStatement) -> bool:
@@ -466,6 +715,33 @@ def _build_segment_statement(
     return _wrap_in_cqe(_build_alqs(query_stmts, prs))
 
 
+_BINDING_DECL_TYPES: tuple[type, ...] = (
+    ast.ElementVariableDeclaration,  # MATCH/CREATE element variables
+    ast.PathVariableDeclaration,  # MATCH p = ...
+    ast.ForItemAlias,  # UNWIND ... AS x (parses to FOR)
+)
+
+
+def _segments_introduce_bindings(
+    segments: list[list[ast.SimpleDataAccessingStatement]],
+    current: list[ast.SimpleDataAccessingStatement],
+) -> bool:
+    """Return True if any statement in *segments* or *current* introduces a binding.
+
+    Used to decide whether a ``WITH *`` (no WHERE) in a data-modifying body
+    can be safely emitted as ``RETURN *`` — emitting the marker against an
+    empty scope would trip the scope validator's ``return-star-no-variables``
+    rule.  Checks for the binding-declaration AST types listed in
+    :data:`_BINDING_DECL_TYPES`.
+    """
+    for seg in (*segments, current):
+        for stmt in seg:
+            for node in stmt.dfs():
+                if isinstance(node, _BINDING_DECL_TYPES):
+                    return True
+    return False
+
+
 def _rewrite_data_modifying_body(
     stmts: list[ast.SimpleDataAccessingStatement],
     original_prs: ast.PrimitiveResultStatement | None,
@@ -482,10 +758,20 @@ def _rewrite_data_modifying_body(
 
     for stmt in stmts:
         if isinstance(stmt, CypherWithStatement):
-            # WITH * without WHERE is a no-op in Cypher — skip it.
+            # WITH * (no WHERE) is semantically a no-op.  We emit it as
+            # ``RETURN * NEXT …`` whenever scope is non-empty so
+            # :func:`next_to_with` can recover it.  When scope is empty (no
+            # prior statement introduced a binding) ``RETURN *`` would fail
+            # scope validation, so we silently drop the WITH — the original
+            # query is unrecoverable in that edge case (the inverse test
+            # xfails such scenarios).
             inner = stmt.return_statement_body.return_statement_body
             is_star = isinstance(inner, ast.ReturnStatementBody._SetQuantifierAsteriskGroupByClause)
-            if is_star and stmt.where_clause is None:
+            if (
+                is_star
+                and stmt.where_clause is None
+                and not _segments_introduce_bindings(segments, current)
+            ):
                 continue
 
             segments.append(current)
@@ -497,14 +783,7 @@ def _rewrite_data_modifying_body(
 
             projected, alias_map = _analyze_projection(stmt)
             losing = (
-                set()
-                if projected is None
-                else {
-                    n.binding_variable.name
-                    for n in stmt.where_clause.dfs()
-                    if isinstance(n, ast.BindingVariableReference)
-                    and n.binding_variable.name not in projected
-                }
+                set() if projected is None else _free_where_names(stmt.where_clause) - projected
             )
 
             if not losing or _has_aggregation(stmt):
@@ -528,7 +807,7 @@ def _rewrite_data_modifying_body(
 
     segments.append(current)
 
-    # All WITHs were WITH * (no-ops) — no rewriting needed, return as ALDMSB.
+    # No WITHs in the body — just wrap the original statements as an ALDMSB.
     if not withs:
         all_stmts: list[ast.SimpleDataAccessingStatement] = []
         for seg in segments:

@@ -59,7 +59,7 @@ from graphglot.generator.fragment import Fragment
 from graphglot.lexer import Lexer as BaseLexer, Token, TokenType
 from graphglot.parser import Parser as BaseParser
 from graphglot.parser.functions import parse_func_args
-from graphglot.transformations import implicit_to_explicit_group_by, with_to_next
+from graphglot.transformations import implicit_to_explicit_group_by, next_to_with, with_to_next
 
 # =============================================================================
 # Parser functions (plain functions -- NOT @parses-decorated)
@@ -3179,8 +3179,14 @@ class CypherDialect(Dialect):
         *Dialect.TRANSFORMATIONS,
     ]
 
+    WRITE_TRANSFORMATIONS: t.ClassVar[list] = [next_to_with]
+
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         "COLLECT_LIST": "COLLECT",
+        # Universal Cypher spellings (every Cypher implementation uses these,
+        # not Neo4j-specific):
+        "PATH_LENGTH": "LENGTH",
+        "ELEMENT_ID": "ELEMENTID",
     }
 
     # Cypher-specific keywords are non-reserved — they can appear as identifiers
@@ -3403,6 +3409,13 @@ class CypherDialect(Dialect):
         # Remove GQL COLLECT_LIST keyword, add Cypher COLLECT (openCypher grammar)
         KEYWORDS.pop("COLLECT_LIST")
         KEYWORDS["COLLECT"] = TokenType.COLLECT_LIST
+
+        # GQL's ELEMENT_ID() / PATH_LENGTH() are spelled elementId() / length()
+        # across every Cypher implementation (openCypher TCK, Neo4j, Memgraph).
+        KEYWORDS.pop("ELEMENT_ID")
+        KEYWORDS["ELEMENTID"] = TokenType.ELEMENT_ID
+        KEYWORDS.pop("PATH_LENGTH")
+        KEYWORDS["LENGTH"] = TokenType.PATH_LENGTH
 
         # Cypher uses ^ for exponentiation (openCypher grammar: <circumflex>)
         SINGLE_TOKENS: t.ClassVar[dict[str, t.Any]] = {
