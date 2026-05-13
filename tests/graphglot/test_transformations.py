@@ -214,14 +214,18 @@ class TestWithToNext(unittest.TestCase):
     # ------------------------------------------------------------------
     # 14. dialect.transform() integration
     # ------------------------------------------------------------------
-    def test_dialect_transform_neo4j(self):
-        """Neo4j dialect applies with_to_next via transform()."""
+    def test_dialect_transform_neo4j_preserves_with(self):
+        """Neo4j dialect.transform() preserves CypherWithStatement.
+
+        with_to_next now runs as a GqlDialect write-side transformation
+        and inside SemanticAnalyzer / LineageAnalyzer — not on Neo4j's
+        read side.  This keeps Neo4j → Neo4j identity transpilation
+        round-trip-faithful at the syntax level.
+        """
         trees = self.neo4j.parse("MATCH (n) WITH n RETURN n")
         transformed = self.neo4j.transform(trees)
         self.assertEqual(len(transformed), 1)
-        self.assertFalse(self._has_cypher_with(transformed[0]))
-        block = self._find_block(transformed[0])
-        self.assertIsNotNone(block)
+        self.assertTrue(self._has_cypher_with(transformed[0]))
 
     def test_dialect_transform_base_applies_resolve(self):
         """Base Dialect.transform() applies resolve_ambiguous (deep-copies)."""
@@ -512,8 +516,7 @@ class TestCypherWithOwnsWhere(unittest.TestCase):
     def test_generate_transformed_with_where(self):
         """Transformed: WITH n WHERE → RETURN n NEXT FILTER WHERE."""
         tree = self._parse_one("MATCH (n) WITH n WHERE n.age > 25 RETURN n.name AS name")
-        transformed = self.neo4j.transform([tree])
-        generated = self.neo4j.generate(transformed[0])
+        generated = self.neo4j.generate(with_to_next(tree))
         self.assertIn("NEXT", generated)
         self.assertIn("FILTER WHERE", generated)
         self.assertNotIn("WITH", generated)
@@ -523,8 +526,7 @@ class TestCypherWithOwnsWhere(unittest.TestCase):
         tree = self._parse_one(
             "MATCH (n) WITH n.age AS age WHERE age > 25 WITH count(age) AS c RETURN c"
         )
-        transformed = self.neo4j.transform([tree])
-        generated = self.neo4j.generate(transformed[0])
+        generated = self.neo4j.generate(with_to_next(tree))
         self.assertIn("NEXT", generated)
         self.assertIn("FILTER WHERE", generated)
         self.assertNotIn("WITH", generated)
@@ -1152,6 +1154,17 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     def test_size_across_next_boundary(self):
         """size(nodes) resolves after WITH collect(a) AS nodes."""
         result = self._transpile("MATCH (a) WITH collect(a) AS nodes RETURN size(nodes) AS s")
+        self.assertIn("CARDINALITY", result)
+
+    def test_size_in_where_uses_with_alias_type(self):
+        """``size(l)`` in a WITH's own WHERE resolves to CARDINALITY.
+
+        Regression test: the ``CypherWithStatement`` type rule must bind the
+        projection alias in scope *before* annotating the WHERE clause, so
+        that ``size(l)`` sees ``l: LIST`` and ``resolve_ambiguous`` can lower
+        it to ``CARDINALITY``.
+        """
+        result = self._transpile("MATCH (a) WITH collect(a) AS l WHERE size(l) > 0 RETURN l")
         self.assertIn("CARDINALITY", result)
 
     def test_size_keys_type_resolved(self):

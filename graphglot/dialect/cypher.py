@@ -59,7 +59,7 @@ from graphglot.generator.fragment import Fragment
 from graphglot.lexer import Lexer as BaseLexer, Token, TokenType
 from graphglot.parser import Parser as BaseParser
 from graphglot.parser.functions import parse_func_args
-from graphglot.transformations import implicit_to_explicit_group_by, next_to_with, with_to_next
+from graphglot.transformations import implicit_to_explicit_group_by, next_to_with
 
 # =============================================================================
 # Parser functions (plain functions -- NOT @parses-decorated)
@@ -3174,7 +3174,6 @@ class CypherDialect(Dialect):
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = Dialect.SUPPORTED_FEATURES | ALL_CYPHER_FEATURES
 
     TRANSFORMATIONS: t.ClassVar[list] = [
-        with_to_next,
         implicit_to_explicit_group_by,
         *Dialect.TRANSFORMATIONS,
     ]

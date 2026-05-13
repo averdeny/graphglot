@@ -27,6 +27,7 @@ from graphglot.lineage.models import (
     Pattern,
 )
 from graphglot.lineage.pattern_analyzer import PatternAnalyzer
+from graphglot.transformations import with_to_next
 
 
 class _ScopeKind(Enum):
@@ -151,8 +152,14 @@ class LineageAnalyzer:
         root: ast.Expression,
         external_context: ExternalContext | None = None,
         query_text: str = "",
+        copy: bool = True,
     ) -> LineageGraph:
-        """Perform full lineage analysis on a GQL AST."""
+        """Perform full lineage analysis on a GQL AST.
+
+        When *copy* is False, *root* is normalized in place — only safe
+        when the caller owns a fresh copy (e.g. just out of
+        :meth:`Dialect.transform`).  Default True for safety.
+        """
         # Reset state
         self._id_gen = IdGenerator()
         self._graph = LineageGraph(query_text=query_text)
@@ -185,6 +192,12 @@ class LineageAnalyzer:
         ctx = external_context or ExternalContext()
         for name, kind in ctx.bindings.items():
             self._create_binding(name=name, kind=kind, pattern_id="", span=None)
+
+        # Normalize to GQL standard form (NEXT chains).  The analyzer dispatches
+        # on NextStatement, not CypherWithStatement, so we lower up-front.
+        if copy:
+            root = root.deep_copy()
+        root = with_to_next(root)
 
         # Analyze the AST
         self._analyze_node(root)

@@ -60,7 +60,8 @@ def lineage_cmd(
         raise SystemExit(1) from e
 
     analyzer = LineageAnalyzer()
-    graph = analyzer.analyze(expressions[0], query_text=query_text)
+    # transform() already deep-copied; analyzer can mutate in place.
+    graph = analyzer.analyze(expressions[0], query_text=query_text, copy=False)
 
     fmt = output_format.lower()
     if fmt == "json":

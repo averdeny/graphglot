@@ -12,10 +12,11 @@ Neo4j (which understands both ``WITH`` and ``NEXT``) recovers a
 ``CypherWithStatement``-shaped AST that we compare against the
 original.
 
-The other transformations in :attr:`CypherDialect.TRANSFORMATIONS`
-(``resolve_ambiguous``, ``implicit_to_explicit_group_by``) are
-intentionally bypassed by calling ``with_to_next`` directly — they
-will get their own inverses and round-trip tests in future work.
+``with_to_next`` is called explicitly here (rather than going through
+``dialect.transform``) so the test isolates the WITH↔NEXT bijection
+from other read-side transformations like ``resolve_ambiguous`` and
+``implicit_to_explicit_group_by``.  Those will get their own inverses
+and round-trip tests in future work.
 """
 
 from __future__ import annotations

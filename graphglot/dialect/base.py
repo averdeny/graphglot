@@ -496,7 +496,11 @@ class Dialect(metaclass=_Dialect):
         expressions = self.parse(query, **opts)
         expressions = self.transform(expressions)
         analyzer = SemanticAnalyzer()
-        return [analyzer.analyze(expr, self, disabled_rules=disabled_rules) for expr in expressions]
+        # transform() already deep-copied; analyzer can mutate in place.
+        return [
+            analyzer.analyze(expr, self, disabled_rules=disabled_rules, copy=False)
+            for expr in expressions
+        ]
 
     def lineage(self, query: str, **opts: t.Any) -> list[LineageGraph]:
         """Parse, transform, and extract data lineage from a query.
@@ -515,7 +519,8 @@ class Dialect(metaclass=_Dialect):
         results: list[LineageGraph] = []
         for expr in expressions:
             self._check_unsupported_lineage(expr)
-            results.append(analyzer.analyze(expr, query_text=query))
+            # transform() already deep-copied; analyzer can mutate in place.
+            results.append(analyzer.analyze(expr, query_text=query, copy=False))
         return results
 
     @staticmethod
@@ -585,7 +590,8 @@ class Dialect(metaclass=_Dialect):
         diagnostics = []
         analysis_feature_ids: set[str] = set()
         for expr in analysis_expressions:
-            result = analyzer.analyze(expr, self, disabled_rules=disabled_rules)
+            # transform() already deep-copied; analyzer can mutate in place.
+            result = analyzer.analyze(expr, self, disabled_rules=disabled_rules, copy=False)
             diagnostics.extend(result.diagnostics)
             analysis_feature_ids |= result.features
 

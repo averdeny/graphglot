@@ -6,6 +6,7 @@ import typing as t
 
 from graphglot.analysis.models import AnalysisContext, AnalysisResult
 from graphglot.analysis.rules import RULE_REGISTRY, STRUCTURAL_RULES
+from graphglot.transformations import with_to_next
 
 if t.TYPE_CHECKING:
     from graphglot.ast.base import Expression
@@ -25,6 +26,7 @@ class SemanticAnalyzer:
         annotate_types: bool = True,
         external_context: ExternalContext | None = None,
         disabled_rules: set[str] | None = None,
+        copy: bool = True,
     ) -> AnalysisResult:
         """Run all registered analysis rules and collect feature usage.
 
@@ -38,7 +40,18 @@ class SemanticAnalyzer:
 
         *disabled_rules* is an optional set of rule IDs (feature IDs for
         feature-gated rules, or structural rule names) to skip entirely.
+
+        When *copy* is False, *expression* is normalized and annotated in
+        place — only safe when the caller owns a fresh copy already (e.g.
+        the tree just came out of :meth:`Dialect.transform`).  Default is
+        True for safety.
         """
+
+        # Normalize to GQL standard form (NEXT chains).  Rules dispatch on
+        # NextStatement, not CypherWithStatement, so we lower up-front.
+        if copy:
+            expression = expression.deep_copy()
+        expression = with_to_next(expression)
 
         if annotate_types:
             from graphglot.typing import TypeAnnotator

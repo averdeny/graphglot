@@ -5,7 +5,7 @@ from __future__ import annotations
 import typing as t
 
 from graphglot import features as F
-from graphglot.dialect.base import Dialect
+from graphglot.dialect.gql import GqlDialect
 from graphglot.features import ALL_FEATURES, Feature
 
 _FULLGQL_UNSUPPORTED: set[Feature] = {
@@ -13,7 +13,7 @@ _FULLGQL_UNSUPPORTED: set[Feature] = {
 }
 
 
-class FullGQL(Dialect):
+class FullGQL(GqlDialect):
     """GQL dialect with all features enabled (extension + optional)."""
 
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = ALL_FEATURES - _FULLGQL_UNSUPPORTED

@@ -25,12 +25,14 @@ class TestDialectTranspile(unittest.TestCase):
         self.assertIn("RETURN", result[0])
 
     def test_neo4j_roundtrip(self):
-        """Neo4j roundtrip applies dialect transforms (WITH -> NEXT)."""
+        """Neo4j identity transpilation preserves WITH (no NEXT lowering)."""
         dialect = Dialect.get_or_raise("neo4j")
         result = dialect.transpile("MATCH (n) WITH n RETURN n")
         self.assertEqual(len(result), 1)
-        # Neo4j's transform rewrites WITH to RETURN...NEXT
-        self.assertIn("NEXT", result[0])
+        # with_to_next runs only on GQL write-targets; Neo4j accepts NEXT
+        # natively but prefers WITH for round-trip syntactic fidelity.
+        self.assertIn("WITH", result[0])
+        self.assertNotIn("NEXT", result[0])
 
     def test_returns_list(self):
         """transpile() always returns a list."""

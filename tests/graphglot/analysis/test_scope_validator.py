@@ -42,9 +42,13 @@ def _cached_scope_rule_feature_ids(query: str, rule_fn, stale_feature_id: str) -
     """Return feature ids after poisoning the scope-rule cache with a reused integer id."""
     from graphglot.analysis.models import AnalysisContext, SemanticDiagnostic
     from graphglot.analysis.rules import scope_validator
+    from graphglot.transformations import with_to_next
 
     dialect = Neo4j()
-    expr = dialect.transform(dialect.parse(query))[0]
+    # Scope rules dispatch on NextStatement, not CypherWithStatement.  Normally
+    # SemanticAnalyzer normalizes via with_to_next at entry; this helper
+    # bypasses the analyzer to poke the rule cache, so we normalize manually.
+    expr = with_to_next(dialect.transform(dialect.parse(query))[0])
     bogus = [
         SemanticDiagnostic(
             feature_id=stale_feature_id,

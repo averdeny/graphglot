@@ -76,7 +76,8 @@ def transpile_cmd(
         )
         raise SystemExit(f"Error: {msgs}") from None
 
-    # Transform (with_to_next + resolve_ambiguous) under read dialect.
+    # Apply read-side transformations (e.g. resolve_ambiguous).  WITH↔NEXT
+    # lowering happens later via WRITE_TRANSFORMATIONS on the target dialect.
     expressions = read_d.transform(validation.expressions)
 
     # Cross-dialect step: materialize implementation-defined defaults from
