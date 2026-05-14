@@ -268,30 +268,8 @@ class Neo4j(CypherDialect):
         KEYWORDS["PERCENTILECONT"] = TokenType.PERCENTILE_CONT
         KEYWORDS["PERCENTILEDISC"] = TokenType.PERCENTILE_DISC
 
-        # ----------------------------------------------------------------------
-        # Supported Optional GQL Features
-        # https://neo4j.com/docs/cypher-manual/current/appendix/gql-conformance/supported-optional/
-        # ----------------------------------------------------------------------
-
-        # GQL supports CEILING() as a synonym for the CEIL() function. Cypher only supports CEIL().
-        KEYWORDS.pop("CEILING")
-
-        # Cypher uses the log() function instead of GQL's LN() function.
-        # The general LOG() function as defined in GQL is not supported by Cypher.
-        KEYWORDS.pop("LN")
-        KEYWORDS.pop("LOG")
-        KEYWORDS["LOG"] = TokenType.LN
-
-        # Cypher uses the exponentiation operator (^) instead of GQL's POWER() function.
-        KEYWORDS.pop("POWER")
-
-        # GQL also defines a parameterless version of the function not in Cypher: CURRENT_TIME
-        KEYWORDS.pop("CURRENT_TIME")
-
-        # ----------------------------------------------------------------------
-
-        # GQL's MOD() function is not supported by Cypher. Cypher uses % instead.
-        KEYWORDS.pop("MOD")
+        # CEILING / LN / LOG / POWER / CURRENT_TIME / MOD lexer remaps live on
+        # CypherDialect (universal Cypher conventions, inherited above).
 
         # Cypher's e() is equivalent to GQL's EXP(1) function
         KEYWORDS["E"] = TokenType.E

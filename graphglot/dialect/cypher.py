@@ -3416,6 +3416,24 @@ class CypherDialect(Dialect):
         KEYWORDS.pop("PATH_LENGTH")
         KEYWORDS["LENGTH"] = TokenType.PATH_LENGTH
 
+        # GQL has CEILING() as a synonym for CEIL(); Cypher only uses ceil().
+        KEYWORDS.pop("CEILING")
+
+        # Cypher's log() is GQL's LN().  GQL's general LOG() doesn't exist in Cypher.
+        KEYWORDS.pop("LN")
+        KEYWORDS.pop("LOG")
+        KEYWORDS["LOG"] = TokenType.LN
+
+        # Cypher uses ^ for exponentiation, not POWER().
+        KEYWORDS.pop("POWER")
+
+        # GQL's parameterless CURRENT_TIME doesn't exist in Cypher.
+        KEYWORDS.pop("CURRENT_TIME")
+
+        # Cypher uses % for modulo, not MOD().  Demoting MOD lets ``AS mod``
+        # work as a regular alias (per openCypher TCK WithOrderBy4).
+        KEYWORDS.pop("MOD")
+
         # Cypher uses ^ for exponentiation (openCypher grammar: <circumflex>)
         SINGLE_TOKENS: t.ClassVar[dict[str, t.Any]] = {
             **BaseLexer.SINGLE_TOKENS,
