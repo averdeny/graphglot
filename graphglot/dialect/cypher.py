@@ -3182,6 +3182,12 @@ class CypherDialect(Dialect):
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         "COLLECT_LIST": "COLLECT",
+        # GQL emits INSERT; Cypher dialects spell it CREATE.
+        "INSERT": "CREATE",
+        # GQL splits list/string length into CARDINALITY/CHAR_LENGTH; Cypher
+        # uses polymorphic size() for both.
+        "CARDINALITY": "SIZE",
+        "CHAR_LENGTH": "SIZE",
         # Universal Cypher spellings (every Cypher implementation uses these,
         # not Neo4j-specific):
         "PATH_LENGTH": "LENGTH",

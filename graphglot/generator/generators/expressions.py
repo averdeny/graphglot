@@ -708,7 +708,8 @@ def generate_byte_length_expression(gen: Generator, expr: ast.ByteLengthExpressi
 
 @generates(ast.CharLengthExpression)
 def generate_char_length_expression(gen: Generator, expr: ast.CharLengthExpression) -> Fragment:
-    return Fragment(f"CHAR_LENGTH({gen.dispatch(expr.character_string_value_expression)})")
+    kw = gen.keyword("CHAR_LENGTH")
+    return Fragment(f"{kw}({gen.dispatch(expr.character_string_value_expression)})")
 
 
 @generates(ast.PathLengthExpression)
@@ -727,9 +728,11 @@ def generate_cardinality_expression(gen: Generator, expr: ast.CardinalityExpress
         inner,
         ast.CardinalityExpression._CardinalityLeftParenCardinalityExpressionArgumentRightParen,
     ):
-        return Fragment(f"CARDINALITY({gen.dispatch(inner.cardinality_expression_argument)})")
+        kw = gen.keyword("CARDINALITY")
+        return Fragment(f"{kw}({gen.dispatch(inner.cardinality_expression_argument)})")
     else:
-        return Fragment(f"SIZE({gen.dispatch(inner.list_value_expression)})")
+        kw = gen.keyword("SIZE")
+        return Fragment(f"{kw}({gen.dispatch(inner.list_value_expression)})")
 
 
 @generates(ast.ElementsFunction)
