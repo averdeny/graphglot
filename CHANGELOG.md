@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v0.13.0 (2026-05-18)
+
+### Bug Fixes
+
+- **generator**: Re-sugar CARDINALITY/CHAR_LENGTH to size() for Cypher
+  ([`3b3d2de`](https://github.com/averdeny/graphglot/commit/3b3d2de1b0876761e9bccd02ebe8e0a7a87984b9))
+
+### Features
+
+- **tck**: Add cross-dialect round-trip suite
+  ([`b64fcda`](https://github.com/averdeny/graphglot/commit/b64fcda974db56fb126c598c0446a8c1f8071008))
+
+### Performance Improvements
+
+- **parser**: Token-based fast-path for Cypher primitive query statement
+  ([`fff916f`](https://github.com/averdeny/graphglot/commit/fff916f48a390507854955b6a52f817ad049a6e8))
+
+### Refactoring
+
+- **dialect**: Move resolve_ambiguous to GqlDialect write-side
+  ([`e3ee937`](https://github.com/averdeny/graphglot/commit/e3ee9375616838b01f0aac137f12bcec8c816e87))
+
+
 ## v0.12.0 (2026-05-13)
 
 ### Chores
