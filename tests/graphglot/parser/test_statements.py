@@ -7,6 +7,7 @@ which require no separator between SimpleDataAccessingStatements.
 import unittest
 
 from graphglot import ast
+from graphglot.ast.cypher import CreateClause, CypherWithStatement, MergeClause
 from graphglot.dialect.neo4j import Neo4j
 
 
@@ -76,3 +77,32 @@ class TestSimpleLinearDataAccessingStatement(unittest.TestCase):
         """Round-trip should not insert a NEXT keyword between MATCH and SET."""
         result = self._round_trip("MATCH (n:Person) SET n.x = 1")
         self.assertNotIn("NEXT", result)
+
+
+class TestPrimitiveQueryStatementDispatch(unittest.TestCase):
+    """Guards the token-based fast-path dispatch in
+    ``_parse_cypher_primitive_query_statement``.  Each subTest covers one
+    branch of the lead-token if/elif chain; adding a new candidate parser
+    without a matching dispatch entry will surface here as a failure.
+    """
+
+    def setUp(self):
+        self.neo4j = Neo4j()
+
+    def test_dispatch_each_lead_token(self):
+        cases = [
+            ("MATCH (n) RETURN n", ast.MatchStatement),
+            ("OPTIONAL MATCH (n) RETURN n", ast.MatchStatement),
+            ("CREATE (n)", CreateClause),
+            ("MERGE (n)", MergeClause),
+            ("UNWIND [1, 2] AS x RETURN x", ast.ForStatement),
+            ("WITH 1 AS x RETURN x", CypherWithStatement),
+            ("MATCH (n) RETURN n ORDER BY n.x", ast.OrderByAndPageStatement),
+            ("MATCH (n) RETURN n LIMIT 5", ast.OrderByAndPageStatement),
+            ("MATCH (n) RETURN n SKIP 5", ast.OrderByAndPageStatement),
+        ]
+        for query, expected_type in cases:
+            with self.subTest(query=query):
+                results = self.neo4j.parse(query)
+                found = list(results[0].find_all(expected_type))
+                self.assertGreaterEqual(len(found), 1, f"Expected {expected_type.__name__} in AST")

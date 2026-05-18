@@ -2011,28 +2011,51 @@ def _parse_cypher_boolean_test(parser: BaseParser) -> ast.BooleanTest:
     return ast.BooleanTest(boolean_primary=boolean_primary, truth_value=truth_value)
 
 
+_ORDER_PAGE_LEAD_TOKENS = frozenset({TokenType.ORDER_BY, TokenType.OFFSET, TokenType.LIMIT})
+
+
 def _parse_cypher_primitive_query_statement(
     parser: BaseParser,
 ) -> ast.PrimitiveQueryStatement:
     """Extended PrimitiveQueryStatement parser with Cypher clauses.
 
     Adds UNWIND (rewritten to ForStatement), MERGE, CREATE, and bare WHERE
-    (for WITH...WHERE patterns) to the candidate list.
+    (for WITH...WHERE patterns).  Uses 1-token lookahead to dispatch
+    directly to the right candidate instead of trying each in turn — every
+    candidate is keyword-led, so the lookahead is exact and avoids the
+    ParseError throw/catch cycles a try-each loop would incur per statement.
     """
-    candidates = (
-        parser.get_parser(ast.MatchStatement),
-        parser.get_parser(ast.LetStatement),
-        parser.get_parser(ast.ForStatement),
-        parser.get_parser(ast.FilterStatement),
-        parser.get_parser(ast.OrderByAndPageStatement),
-        # Cypher extensions
-        _parse_cypher_with_statement,
-        parser.PARSERS[MergeClause],
-        parser.PARSERS[CreateClause],
-        _parse_unwind_statement,
-        parser.get_parser(ast.MacroCall),
-    )
-    (result,) = parser.seq(candidates)
+    tok = parser._curr
+    if tok is None:
+        parser.raise_error("Unexpected end of input")
+        raise  # unreachable
+
+    tt = tok.token_type
+    if tt is TokenType.CREATE:
+        result = parser.PARSERS[CreateClause](parser)
+    elif tt is TokenType.MATCH or tt is TokenType.OPTIONAL:
+        result = parser.get_parser(ast.MatchStatement)(parser)
+    elif tt is TokenType.MERGE:
+        result = parser.PARSERS[MergeClause](parser)
+    elif tt is TokenType.WITH:
+        result = _parse_cypher_with_statement(parser)
+    elif tt is TokenType.UNWIND:
+        result = _parse_unwind_statement(parser)
+    elif tt is TokenType.LET:
+        result = parser.get_parser(ast.LetStatement)(parser)
+    elif tt is TokenType.FOR:
+        result = parser.get_parser(ast.ForStatement)(parser)
+    elif tt is TokenType.FILTER or tt is TokenType.WHERE:
+        result = parser.get_parser(ast.FilterStatement)(parser)
+    elif tt in _ORDER_PAGE_LEAD_TOKENS:
+        result = parser.get_parser(ast.OrderByAndPageStatement)(parser)
+    else:
+        # Identifier-led — only MacroCall qualifies.  MacroCall's failure
+        # message gets overwritten by the outer "Unexpected token" anyway
+        # (same _furthest_error position), so no explicit fallback adds
+        # user-visible value here.
+        result = parser.get_parser(ast.MacroCall)(parser)
+
     # WITH always requires a continuation clause — it's not a terminal statement.
     if isinstance(result, CypherWithStatement) and (
         parser._curr is None or parser._curr.token_type in (TokenType.EOF, TokenType.SEMICOLON)
