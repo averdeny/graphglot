@@ -47,8 +47,8 @@ class SemanticAnalyzer:
         True for safety.
         """
 
-        # Normalize to GQL standard form (NEXT chains).  Rules dispatch on
-        # NextStatement, not CypherWithStatement, so we lower up-front.
+        # Normalize WITH → NEXT so rules dispatch on NextStatement.
+        # ``resolve_ambiguous`` runs write-side (see Dialect.WRITE_TRANSFORMATIONS).
         if copy:
             expression = expression.deep_copy()
         expression = with_to_next(expression)

@@ -1,7 +1,9 @@
-"""Post-parse AST transformations.
+"""AST transformations applied around parse/generate.
 
-Transformation functions take an Expression tree and return a rewritten tree.
-They are declared on Dialect subclasses via the TRANSFORMATIONS class variable.
+Each function takes an :class:`Expression` tree and returns a rewritten tree.
+Dialects declare them on either :attr:`Dialect.TRANSFORMATIONS` (read-side,
+run by :meth:`Dialect.transform`) or :attr:`Dialect.WRITE_TRANSFORMATIONS`
+(write-side, run by :meth:`Dialect.generate` on a deep copy).
 """
 
 from __future__ import annotations

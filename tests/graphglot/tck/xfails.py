@@ -114,9 +114,6 @@ _XCD_EW = XFailEntry(
     "ENDS WITH desugared to RIGHT(...)=y; need re-sugar (followups §7)",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
-_XCD_IC = XFailEntry(
-    "Generator emits INSERT instead of CREATE (followups §6)", XFailCategory.GENERATOR_BUG
-)
 _XCD_LBL = XFailEntry(
     "Label predicate (a:B) wrapped in EXISTS; need re-sugar (followups §5)",
     XFailCategory.UNSUPPORTED_FEATURE,
@@ -589,33 +586,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "TypeConversion4__10_Fail_toString_on_invalid_types_Example_relationship__row3": _XCD_LC,
     "TypeConversion4__5_toString_should_work_on_Any_type": _XCD_LC,
     "TypeConversion4__6_toString_on_a_list_of_integers": _XCD_LC,
-    # ---- MM_insert_vs_create (26 scenarios) ----
-    "Create1__10_Create_a_single_node_with_two_properties_and_return_them": _XCD_IC,
-    "Create1__11_Create_a_single_node_with_null_properties_should_not_return": _XCD_IC,
-    "Create1__12_CREATE_does_not_lose_precision_on_large_integers": _XCD_IC,
-    "Create1__8_Create_a_single_node_with_a_property_and_return_it": _XCD_IC,
-    "Create2__14_Create_a_single_relationship_with_a_property_and_return_it": _XCD_IC,
-    "Create2__16_Create_a_single_relationship_with_two_properties_and_return": _XCD_IC,
-    "Create2__17_Create_a_single_relationship_with_null_properties_should_not": _XCD_IC,
-    "Create3__5_WITH_CREATE_Nodes_are_not_created_when_aliases_are_applied_t": _XCD_IC,
-    "Create3__6_WITH_CREATE_Only_a_single_node_is_created_when_an_alias_is_a": _XCD_IC,
-    "Create3__7_WITH_CREATE_Nodes_are_not_created_when_aliases_are_applied_t": _XCD_IC,
-    "Create3__8_WITH_CREATE_Only_a_single_node_is_created_when_an_alias_is_a": _XCD_IC,
-    "Create6__10_Skipping_and_limiting_to_a_few_results_after_creating_relati": _XCD_IC,
-    "Create6__11_Skipping_zero_result_and_limiting_to_all_results_after_creat": _XCD_IC,
-    "Create6__12_Filtering_after_creating_relationships_affects_the_result_se": _XCD_IC,
-    "Create6__13_Aggregating_in_RETURN_after_creating_relationships_affects_t": _XCD_IC,
-    "Create6__14_Aggregating_in_WITH_after_creating_relationships_affects_the": _XCD_IC,
-    "Create6__1_Limiting_to_zero_results_after_creating_nodes_affects_the_re": _XCD_IC,
-    "Create6__2_Skipping_all_results_after_creating_nodes_affects_the_result": _XCD_IC,
-    "Create6__3_Skipping_and_limiting_to_a_few_results_after_creating_nodes": _XCD_IC,
-    "Create6__4_Skipping_zero_result_and_limiting_to_all_results_after_creat": _XCD_IC,
-    "Create6__5_Filtering_after_creating_nodes_affects_the_result_set_but_no": _XCD_IC,
-    "Create6__6_Aggregating_in_RETURN_after_creating_nodes_affects_the_resul": _XCD_IC,
-    "Create6__7_Aggregating_in_WITH_after_creating_nodes_affects_the_result": _XCD_IC,
-    "Create6__8_Limiting_to_zero_results_after_creating_relationships_affect": _XCD_IC,
-    "Create6__9_Skipping_all_results_after_creating_relationships_affects_th": _XCD_IC,
-    "With4__7_Multiple_aliasing_and_backreferencing": _XCD_IC,
     # ---- MM_label_pred_wrapped (23 scenarios) ----
     "Match7__25_Optionally_matching_self_loops_without_matches": _XCD_LBL,
     "MatchWhere4__2_Join_with_disjunctive_multi_part_predicates_including_patter": _XCD_LBL,
@@ -665,6 +635,37 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     # ---- MM_with_star (2 scenarios) ----
     "Create3__2_WITH_CREATE": _XCD_WS,
     "Create3__3_MATCH_CREATE_WITH_CREATE": _XCD_WS,
+    # ---- Surfaced after moving ``resolve_ambiguous`` to GqlDialect write-side:
+    # scenarios that previously skipped at Stage 1 (FullGQL couldn't generate
+    # ambiguous ``Size`` etc.) now reach Stage 2 and fall into the same buckets.
+    # MM_list_pred_wrapped (+15)
+    "Quantifier5__5_None_quantifier_is_equal_whether_the_size_of_the_list_filter__row0": _XCD_LP,
+    "Quantifier5__5_None_quantifier_is_equal_whether_the_size_of_the_list_filter__row1": _XCD_LP,
+    "Quantifier5__5_None_quantifier_is_equal_whether_the_size_of_the_list_filter__row2": _XCD_LP,
+    "Quantifier5__5_None_quantifier_is_equal_whether_the_size_of_the_list_filter__row3": _XCD_LP,
+    "Quantifier5__5_None_quantifier_is_equal_whether_the_size_of_the_list_filter__row4": _XCD_LP,
+    "Quantifier7__6_Any_quantifier_is_equal_whether_the_size_of_the_list_filtere__row0": _XCD_LP,
+    "Quantifier7__6_Any_quantifier_is_equal_whether_the_size_of_the_list_filtere__row1": _XCD_LP,
+    "Quantifier7__6_Any_quantifier_is_equal_whether_the_size_of_the_list_filtere__row2": _XCD_LP,
+    "Quantifier7__6_Any_quantifier_is_equal_whether_the_size_of_the_list_filtere__row3": _XCD_LP,
+    "Quantifier7__6_Any_quantifier_is_equal_whether_the_size_of_the_list_filtere__row4": _XCD_LP,
+    "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row0": _XCD_LP,
+    "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row1": _XCD_LP,
+    "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row2": _XCD_LP,
+    "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row3": _XCD_LP,
+    "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row4": _XCD_LP,
+    # MM_list_comprehension (+6)
+    "List12__2_Collect_and_filter_using_a_list_comprehension": _XCD_LC,
+    "List12__3_Size_of_list_comprehension": _XCD_LC,
+    "List6__10_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_LC,
+    "List6__7_Using_size_of_pattern_comprehension_to_test_existence": _XCD_LC,
+    "List6__8_Get_node_degree_via_size_of_pattern_comprehension": _XCD_LC,
+    "List6__9_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_LC,
+    # MM_unknown (+4) — list concat shape (Cypher uses `+`, GQL emits `||`)
+    "Set1__6_Concatenate_elements_onto_a_list_property": _XCD_UC,
+    "Set1__7_Concatenate_elements_in_reverse_onto_a_list_property": _XCD_UC,
+    "List4__1_Concatenating_lists_of_same_type": _XCD_UC,
+    "Unwind1__3_Unwinding_a_concatenation_of_lists": _XCD_UC,
 }
 
 

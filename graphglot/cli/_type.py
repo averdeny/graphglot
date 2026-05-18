@@ -33,6 +33,7 @@ def type_cmd(
     from graphglot.ast.expressions import ReturnItem, ReturnStatementBody
     from graphglot.dialect import Dialect
     from graphglot.error import format_diagnostic
+    from graphglot.transformations import with_to_next
     from graphglot.typing.annotator import TypeAnnotator
 
     query_text = read_query(query=query, file_path=file_, query_or_file=query_or_file)
@@ -54,8 +55,11 @@ def type_cmd(
             print_diagnostics(validation)
         raise SystemExit(1)
 
-    # Transform + annotate
+    # Normalize WITH → NEXT so type rules dispatch on NextStatement (mirrors
+    # SemanticAnalyzer; CLI bypasses it).  ``resolve_ambiguous`` runs inside
+    # ``dialect.generate()`` below, so we don't pre-resolve here.
     expressions = dialect_obj.transform(validation.expressions)
+    expressions[0] = with_to_next(expressions[0])
     annotator = TypeAnnotator(dialect=dialect_obj)
     annotation = annotator.annotate(expressions[0])
 

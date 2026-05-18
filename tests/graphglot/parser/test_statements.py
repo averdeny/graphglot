@@ -38,11 +38,16 @@ class TestSimpleLinearDataAccessingStatement(unittest.TestCase):
         self.assertGreaterEqual(len(inserts), 1, "Expected at least one InsertStatement")
 
     def test_match_insert_no_next(self):
-        """Round-trip should not insert a NEXT keyword between MATCH and INSERT."""
+        """Round-trip should not insert a NEXT keyword between MATCH and INSERT.
+
+        Neo4j ``KEYWORD_OVERRIDES`` spells GQL ``INSERT`` as Cypher ``CREATE``
+        on the way out, so we assert the data-modifying clause is preserved
+        under either spelling.
+        """
         result = self._round_trip("MATCH (a:Person), (b:Person) INSERT (a)-[:KNOWS]->(b)")
         self.assertNotIn("NEXT", result)
         self.assertIn("MATCH", result)
-        self.assertIn("INSERT", result)
+        self.assertIn("CREATE", result)
 
     def test_match_remove_parses(self):
         """MATCH ... REMOVE ... should produce both MatchStatement and RemoveStatement."""

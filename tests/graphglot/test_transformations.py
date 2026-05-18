@@ -227,18 +227,19 @@ class TestWithToNext(unittest.TestCase):
         self.assertEqual(len(transformed), 1)
         self.assertTrue(self._has_cypher_with(transformed[0]))
 
-    def test_dialect_transform_base_applies_resolve(self):
-        """Base Dialect.transform() applies resolve_ambiguous (deep-copies)."""
+    def test_dialect_transform_base_is_noop(self):
+        """Base Dialect.transform() returns an unchanged tree.
+
+        ``resolve_ambiguous`` no longer lives in the read-side TRANSFORMATIONS
+        chain — it now runs inside :class:`SemanticAnalyzer.analyze`.  Base
+        ``Dialect.TRANSFORMATIONS`` is empty, so ``transform()`` is a no-op
+        and returns the input list unchanged.
+        """
         base = Dialect()
         trees = base.parse("MATCH (n) RETURN n")
         transformed = base.transform(trees)
-        self.assertEqual(len(transformed), len(trees))
-        # Deep-copied — NOT the same objects
-        for orig, trans in zip(trees, transformed, strict=False):
-            self.assertIsNot(orig, trans)
-        # But generates the same output
-        for orig, trans in zip(trees, transformed, strict=False):
-            self.assertEqual(base.generate(orig), base.generate(trans))
+        # No transforms registered → returned as-is (same identity, no copy).
+        self.assertIs(transformed, trees)
 
 
 class TestWithToNextScopeLoss(unittest.TestCase):
@@ -857,13 +858,21 @@ class TestResolveAmbiguous(unittest.TestCase):
         self.assertIn("||", output, "GQL output should use || for list concat")
         self.assertNotIn("+", output, "GQL output should not use + for list concat")
 
-    def test_list_concat_cypher_transform_roundtrip(self):
-        """Cypher [1,2]+[3,4] → || after transform+generate (GQL list concat)."""
+    def test_list_concat_neo4j_roundtrip_preserves_plus(self):
+        """Cypher [1,2]+[3,4] → still ``+`` after Neo4j roundtrip.
+
+        Neo4j generates Cypher-idiomatic ``+`` for list concat;
+        ``resolve_ambiguous`` doesn't run on the Cypher write side, so the
+        ``ConcatenationValueExpression`` is emitted as-is.  GQL targets
+        lower it to ``ListValueExpression`` (``||``) — covered by
+        :meth:`test_list_concat_transpile_to_gql`.
+        """
         neo4j = Neo4j()
         tree = self._parse_one("RETURN [1, 2] + [3, 4]", dialect=neo4j)
         transformed = neo4j.transform([tree])
         output = neo4j.generate(transformed[0])
-        self.assertIn("||", output, "Transformed output should use || for list concat")
+        self.assertIn("+", output)
+        self.assertNotIn("||", output)
 
 
 class TestCypherToGqlGeneration(unittest.TestCase):
@@ -1170,15 +1179,19 @@ class TestCypherToGqlGeneration(unittest.TestCase):
     def test_size_keys_type_resolved(self):
         """size(keys(n)) — keys() types as LIST<STRING>, so size resolves to CARDINALITY.
 
-        Generation still fails because keys() has no GQL equivalent, but the
-        Size node IS resolved (not the blocker).
+        Tests ``resolve_ambiguous`` directly (the function that runs inside
+        the GQL write-side ``WRITE_TRANSFORMATIONS``).  Generation through
+        FullGQL would also fail on ``keys()`` (no GQL equivalent), so we
+        bypass it and assert the Size→CARDINALITY rewrite happens at the
+        AST level.
         """
         from graphglot.ast.functions import Size
+        from graphglot.transformations import resolve_ambiguous
 
         trees = self.neo4j.parse("MATCH (n) RETURN size(keys(n)) AS s")
-        transformed = self.neo4j.transform(trees)
+        resolved = resolve_ambiguous(trees[0])
         # Size should be resolved (no Size nodes left in tree)
-        size_nodes = list(transformed[0].find_all(Size))
+        size_nodes = list(resolved.find_all(Size))
         self.assertEqual(len(size_nodes), 0, "Size should be resolved to CardinalityExpression")
 
     # ------------------------------------------------------------------

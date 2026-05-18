@@ -242,17 +242,16 @@ class Dialect(metaclass=_Dialect):
     when source and target dialects disagree.
     """
 
-    TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
-    """Ordered list of AST transformations to apply when normalizing parsed trees."""
+    TRANSFORMATIONS: t.ClassVar[list[Transformation]] = []
+    """Read-side AST transformations.  Empty by default; dialects override."""
 
-    WRITE_TRANSFORMATIONS: t.ClassVar[list[Transformation]] = []
-    """Ordered list of AST transformations applied immediately before generation.
+    WRITE_TRANSFORMATIONS: t.ClassVar[list[Transformation]] = [resolve_ambiguous]
+    """Write-side AST transformations applied (on a deep copy) before generation.
 
-    Mirrors :attr:`TRANSFORMATIONS` (read-side) on the write side: each entry
-    specializes the AST for this dialect's preferred surface syntax (e.g.
-    ``next_to_with`` lowers GQL ``NEXT`` chains into Cypher ``WITH`` clauses
-    when generating with a Cypher target).  Applied to a deep copy so the
-    caller's tree is preserved.
+    ``resolve_ambiguous`` lowers ambiguous nodes (``Size``, etc.) to concrete
+    typed forms the standard GQL generator dispatches on.  Cypher dialects
+    override this attribute (their Func-dispatch generator handles ambiguous
+    forms natively), so ``resolve_ambiguous`` is *not* inherited by them.
     """
 
     NON_RESERVED_WORDS: t.ClassVar[set[TokenType]] = {
@@ -496,7 +495,8 @@ class Dialect(metaclass=_Dialect):
         expressions = self.parse(query, **opts)
         expressions = self.transform(expressions)
         analyzer = SemanticAnalyzer()
-        # transform() already deep-copied; analyzer can mutate in place.
+        # Parse trees are fresh per call and aren't exposed to the caller,
+        # so the analyzer can mutate in place safely (avoids a deep copy).
         return [
             analyzer.analyze(expr, self, disabled_rules=disabled_rules, copy=False)
             for expr in expressions
@@ -519,7 +519,8 @@ class Dialect(metaclass=_Dialect):
         results: list[LineageGraph] = []
         for expr in expressions:
             self._check_unsupported_lineage(expr)
-            # transform() already deep-copied; analyzer can mutate in place.
+            # Parse trees are fresh per call and aren't exposed to the caller,
+            # so the analyzer can mutate in place safely (avoids a deep copy).
             results.append(analyzer.analyze(expr, query_text=query, copy=False))
         return results
 
@@ -590,7 +591,8 @@ class Dialect(metaclass=_Dialect):
         diagnostics = []
         analysis_feature_ids: set[str] = set()
         for expr in analysis_expressions:
-            # transform() already deep-copied; analyzer can mutate in place.
+            # Parse trees are fresh per call and aren't exposed to the caller,
+            # so the analyzer can mutate in place safely (avoids a deep copy).
             result = analyzer.analyze(expr, self, disabled_rules=disabled_rules, copy=False)
             diagnostics.extend(result.diagnostics)
             analysis_feature_ids |= result.features

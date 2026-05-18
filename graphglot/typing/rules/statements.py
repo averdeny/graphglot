@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from graphglot.ast import expressions as ast
-from graphglot.ast.cypher import CypherWithStatement
 from graphglot.typing.rules import type_rule
 from graphglot.typing.types import GqlType
 
@@ -28,33 +27,6 @@ def type_statement_block(annotator, expr):
             next_stmt._resolved_type = GqlType.unknown()
             _bind_return_aliases(annotator, next_stmt.statement)
 
-    return GqlType.unknown()
-
-
-@type_rule(CypherWithStatement)
-def type_cypher_with_statement(annotator, expr):
-    """Bind WITH projection aliases in scope (Cypher-form analog of NEXT boundary).
-
-    When ``with_to_next`` has *not* run (Neo4j reads in the un-normalized
-    AST), a ``CypherWithStatement`` plays the role of a NEXT segment
-    boundary inside a single ``SimpleLinearQueryStatement``: its
-    projection aliases must be visible to downstream clauses.  Without
-    this rule, aliases like ``nodes`` in
-    ``WITH collect(a) AS nodes`` would be invisible to ``RETURN
-    size(nodes)`` and ``resolve_ambiguous`` couldn't rewrite the size
-    call to ``CARDINALITY``.
-
-    Order matters: bind aliases *after* annotating the projection (so
-    the alias has a resolved type) but *before* annotating the WHERE /
-    ORDER BY (where the alias may be referenced — e.g. ``WITH list AS l
-    WHERE size(l) > 0``).
-    """
-    annotator.annotate_child(expr.return_statement_body)
-    _bind_return_item_aliases(annotator, expr.return_statement_body)
-    if expr.order_by_and_page_statement is not None:
-        annotator.annotate_child(expr.order_by_and_page_statement)
-    if expr.where_clause is not None:
-        annotator.annotate_child(expr.where_clause)
     return GqlType.unknown()
 
 

@@ -3173,11 +3173,12 @@ class CypherDialect(Dialect):
 
     SUPPORTED_FEATURES: t.ClassVar[set[Feature]] = Dialect.SUPPORTED_FEATURES | ALL_CYPHER_FEATURES
 
-    TRANSFORMATIONS: t.ClassVar[list] = [
-        implicit_to_explicit_group_by,
-        *Dialect.TRANSFORMATIONS,
-    ]
+    TRANSFORMATIONS: t.ClassVar[list] = [implicit_to_explicit_group_by]
 
+    # Cypher generators dispatch on the ambiguous forms directly (``size()`` is
+    # polymorphic, ``+`` covers both numeric and list concat) and lean on
+    # KEYWORD_OVERRIDES for surface-syntax differences, so we deliberately do
+    # *not* inherit base ``Dialect.WRITE_TRANSFORMATIONS = [resolve_ambiguous]``.
     WRITE_TRANSFORMATIONS: t.ClassVar[list] = [next_to_with]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
