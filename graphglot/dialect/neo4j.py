@@ -17,6 +17,7 @@ from graphglot.transformations import (
     list_predicate_resugar,
     pattern_comprehension_resugar,
     pattern_predicate_resugar,
+    string_match_predicate_resugar,
 )
 
 # ==============================================================================
@@ -245,6 +246,7 @@ class Neo4j(CypherDialect):
         list_predicate_resugar,
         pattern_comprehension_resugar,
         pattern_predicate_resugar,
+        string_match_predicate_resugar,
     ]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {

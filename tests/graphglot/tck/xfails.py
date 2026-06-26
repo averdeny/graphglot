@@ -106,14 +106,6 @@ XFAIL_INVERSE: dict[str, XFailEntry] = {
 
 # Cross-dialect xfail short-form variables (one per root cause).
 # Reasons reference playground/cross_dialect_followups.md.
-_XCD_EW = XFailEntry(
-    "ENDS WITH desugared to RIGHT(...)=y; need re-sugar (followups §7)",
-    XFailCategory.UNSUPPORTED_FEATURE,
-)
-_XCD_SW = XFailEntry(
-    "STARTS WITH desugared to LEFT(...)=y; need re-sugar (followups §7)",
-    XFailCategory.UNSUPPORTED_FEATURE,
-)
 _XCD_UC = XFailEntry(
     "Uncategorized round-trip drift (followups §9)", XFailCategory.UNSUPPORTED_FEATURE
 )
@@ -190,28 +182,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row1": _XCD_UC,
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row2": _XCD_UC,
     "WithWhere7__3_WHERE_sees_both_variable_bound_before_but_not_after_WITH_and": _XCD_UC,
-    # ---- MM_starts_with (11 scenarios) ----
-    "Precedence4__4_String_predicate_takes_precedence_over_binary_boolean_operat": _XCD_SW,
-    "String11__1_Combining_prefix_and_suffix_search": _XCD_SW,
-    "String8__1_Finding_exact_matches_with_non_proper_prefix": _XCD_SW,
-    "String8__2_Finding_beginning_of_string": _XCD_SW,
-    "String8__3_Finding_the_empty_prefix": _XCD_SW,
-    "String8__4_Finding_strings_starting_with_whitespace": _XCD_SW,
-    "String8__5_Finding_strings_starting_with_newline": _XCD_SW,
-    "String8__6_No_string_starts_with_null": _XCD_SW,
-    "String8__7_No_string_does_not_start_with_null": _XCD_SW,
-    "String8__8_Handling_non_string_operands_for_STARTS_WITH": _XCD_SW,
-    "String8__9_NOT_with_STARTS_WITH": _XCD_SW,
-    # ---- MM_ends_with (9 scenarios) ----
-    "String9__1_Finding_exact_matches_with_non_proper_suffix": _XCD_EW,
-    "String9__2_Finding_end_of_string": _XCD_EW,
-    "String9__3_Finding_the_empty_suffix": _XCD_EW,
-    "String9__4_Finding_strings_ending_with_whitespace": _XCD_EW,
-    "String9__5_Finding_strings_ending_with_newline": _XCD_EW,
-    "String9__6_No_string_ends_with_null": _XCD_EW,
-    "String9__7_No_string_does_not_end_with_null": _XCD_EW,
-    "String9__8_Handling_non_string_operands_for_ENDS_WITH": _XCD_EW,
-    "String9__9_NOT_with_ENDS_WITH": _XCD_EW,
     # ---- MM_with_star (2 scenarios) ----
     "Create3__2_WITH_CREATE": _XCD_WS,
     "Create3__3_MATCH_CREATE_WITH_CREATE": _XCD_WS,

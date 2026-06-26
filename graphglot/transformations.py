@@ -18,6 +18,7 @@ from graphglot.ast.cypher import (
     CypherWithStatement,
     ListComprehension,
     ListPredicateFunction,
+    StringMatchPredicate,
 )
 from graphglot.ast.functions import Size
 from graphglot.typing.types import TypeKind
@@ -1062,6 +1063,8 @@ def _descend_through_value_wrappers(expr: Expression) -> Expression | None:
             "boolean_primary",
             "value_expression",
             "arithmetic_primary",
+            "numeric_primary",
+            "list_character_string_value_expression",
         ):
             v = getattr(cur, attr, None)
             if v is None:
@@ -1466,6 +1469,120 @@ def _match_lowered_pattern_predicate(
         return None
 
     return CypherPatternPredicate(pattern=pattern)
+
+
+# ===========================================================================
+# string_match_predicate_resugar — invert FullGQL's STARTS WITH / ENDS WITH lowering
+# ===========================================================================
+
+# Inverse of generate_string_match_predicate at
+# graphglot/generator/generators/cypher_compat.py:47, which emits:
+#
+#   x STARTS WITH y  →  LEFT(x, COALESCE(CHAR_LENGTH(y), 0)) = y
+#   x ENDS WITH y    →  RIGHT(x, COALESCE(CHAR_LENGTH(y), 0)) = y
+#
+# CONTAINS is not handled (the forward generator raises
+# NotImplementedError; no AST shape to invert).
+
+
+def string_match_predicate_resugar(tree: Expression) -> Expression:
+    """Re-sugar GQL-lowered ``LEFT/RIGHT(...) = ...`` comparisons back to
+    Cypher's ``STARTS WITH`` / ``ENDS WITH`` predicates.
+
+    Inverse of :func:`generate_string_match_predicate`.  Walks the tree
+    for ``ComparisonPredicate`` nodes whose shape matches the canonical
+    lowering and rewrites each to a :class:`StringMatchPredicate`.
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.ComparisonPredicate):
+            continue
+        smp = _match_lowered_string_match(node)
+        if smp is None:
+            continue
+        _replace_in_parent(node, smp)
+    return tree
+
+
+def _match_lowered_string_match(
+    cmp: ast.ComparisonPredicate,
+) -> StringMatchPredicate | None:
+    """Detect the canonical ``LEFT/RIGHT(x, COALESCE(CHAR_LENGTH(y), 0)) = y``
+    shape at *cmp* and build the :class:`StringMatchPredicate` replacement.
+
+    The shape is symmetric in principle (``x = LEFT(...)`` is semantically
+    identical), but the FullGQL generator only ever emits with the
+    ``SubstringFunction`` on the left side.  Accepting only that ordering
+    avoids false positives on hand-written GQL.
+    """
+    part2 = cmp.comparison_predicate_part_2
+    if part2.comp_op != ast.ComparisonPredicatePart2.CompOp.EQUALS:
+        return None
+
+    substr = _descend_through_value_wrappers(cmp.comparison_predicand)
+    if not isinstance(substr, ast.SubstringFunction):
+        return None
+    if substr.mode not in (
+        ast.SubstringFunction.Mode.LEFT,
+        ast.SubstringFunction.Mode.RIGHT,
+    ):
+        return None
+
+    rhs_inner = _match_coalesce_char_length(substr.string_length)
+    if rhs_inner is None:
+        return None
+
+    rhs = part2.comparison_predicand
+    # The generator dispatches the same `rhs` expression to both the
+    # CHAR_LENGTH argument and the comparison's right side, so they're
+    # textually identical but FullGQL.parse rebuilds them under different
+    # wrapper types (e.g. CharacterStringValueExpression for one,
+    # BooleanValueExpression/NullLiteral for the other when rhs is null).
+    # Compare the unwrapped leaves rather than the wrapped forms.
+    if _descend_through_value_wrappers(rhs) != _descend_through_value_wrappers(rhs_inner):
+        return None
+
+    kind = (
+        StringMatchPredicate.MatchKind.STARTS_WITH
+        if substr.mode == ast.SubstringFunction.Mode.LEFT
+        else StringMatchPredicate.MatchKind.ENDS_WITH
+    )
+    return StringMatchPredicate(
+        lhs=substr.character_string_value_expression,
+        kind=kind,
+        rhs=rhs,
+    )
+
+
+def _match_coalesce_char_length(string_length: Expression) -> Expression | None:
+    """Extract *y* from the canonical ``COALESCE(CHAR_LENGTH(y), 0)`` shape
+    that ``generate_string_match_predicate`` produces as the substring length.
+
+    Returns ``None`` if the shape diverges — different default than ``0``,
+    different inner function than CHAR_LENGTH, more than 2 COALESCE args,
+    etc.
+    """
+    case_abbr = _descend_through_value_wrappers(string_length)
+    if not isinstance(case_abbr, ast.CaseAbbreviation):
+        return None
+    coalesce_body = case_abbr.case_abbreviation
+    coalesce_kind = ast.CaseAbbreviation._CoalesceLeftParenListValueExpressionRightParen
+    if not isinstance(coalesce_body, coalesce_kind):
+        return None
+    args = coalesce_body.list_value_expression
+    if len(args) != 2:
+        return None
+
+    char_len = _descend_through_value_wrappers(args[0])
+    if not isinstance(char_len, ast.CharLengthExpression):
+        return None
+
+    zero = _descend_through_value_wrappers(args[1])
+    if not isinstance(zero, ast.UnsignedNumericLiteral):
+        return None
+    if zero.value != 0:
+        return None
+
+    return char_len.character_string_value_expression
 
 
 # ===========================================================================
