@@ -12,6 +12,7 @@ from graphglot.generator import func_generators
 from graphglot.generator.generators.patterns import generate_quantified_path_primary
 from graphglot.lexer import TokenType
 from graphglot.parser import Parser as BaseParser
+from graphglot.transformations import list_predicate_resugar
 
 # ==============================================================================
 # Unsupported Mandatory GQL Features not supported by Neo4j:
@@ -231,8 +232,10 @@ class Neo4j(CypherDialect):
 
     # Neo4j accepts NEXT natively (GQ20), so we don't lower NEXT → WITH when
     # generating Neo4j output.  The abstract :class:`CypherDialect` keeps
-    # ``next_to_with`` for targets that only understand WITH.
-    WRITE_TRANSFORMATIONS: t.ClassVar[list] = []
+    # ``next_to_with`` for targets that only understand WITH.  ``list_predicate_resugar``
+    # is still needed: FullGQL lowers ``any/all/none`` to EXISTS{FOR...} subqueries that
+    # Neo4j's parser rejects (EXISTS subqueries don't accept FILTER WHERE + trailing RETURN).
+    WRITE_TRANSFORMATIONS: t.ClassVar[list] = [list_predicate_resugar]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         **CypherDialect.KEYWORD_OVERRIDES,

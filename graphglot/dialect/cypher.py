@@ -59,7 +59,11 @@ from graphglot.generator.fragment import Fragment
 from graphglot.lexer import Lexer as BaseLexer, Token, TokenType
 from graphglot.parser import Parser as BaseParser
 from graphglot.parser.functions import parse_func_args
-from graphglot.transformations import implicit_to_explicit_group_by, next_to_with
+from graphglot.transformations import (
+    implicit_to_explicit_group_by,
+    list_predicate_resugar,
+    next_to_with,
+)
 
 # =============================================================================
 # Parser functions (plain functions -- NOT @parses-decorated)
@@ -3202,7 +3206,7 @@ class CypherDialect(Dialect):
     # polymorphic, ``+`` covers both numeric and list concat) and lean on
     # KEYWORD_OVERRIDES for surface-syntax differences, so we deliberately do
     # *not* inherit base ``Dialect.WRITE_TRANSFORMATIONS = [resolve_ambiguous]``.
-    WRITE_TRANSFORMATIONS: t.ClassVar[list] = [next_to_with]
+    WRITE_TRANSFORMATIONS: t.ClassVar[list] = [list_predicate_resugar, next_to_with]
 
     KEYWORD_OVERRIDES: t.ClassVar[dict[str, str]] = {
         "COLLECT_LIST": "COLLECT",

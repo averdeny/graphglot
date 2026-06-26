@@ -841,6 +841,269 @@ def _rewrite_data_modifying_body(
 
 
 # ===========================================================================
+# list_predicate_resugar — invert FullGQL's any/all/none lowering
+# ===========================================================================
+
+# Inverse of generate_list_predicate at
+# graphglot/generator/generators/cypher_compat.py:78, which emits:
+#
+#   any(x IN L WHERE P)  → EXISTS {FOR x IN L FILTER WHERE P RETURN x}
+#   none(x IN L WHERE P) → (NOT EXISTS {FOR x IN L FILTER WHERE P RETURN x})
+#   all(x IN L WHERE P)  → (NOT EXISTS {FOR x IN L FILTER WHERE NOT (P) RETURN x})
+#
+# When a Cypher → FullGQL → Cypher round-trip needs to preserve the original
+# AST, the lowered shape must be re-sugared back to ListPredicateFunction
+# before Cypher's generator runs.  This transform handles all three shapes.
+
+
+def list_predicate_resugar(tree: Expression) -> Expression:
+    """Re-sugar GQL-lowered EXISTS subqueries back to any/all/none.
+
+    Walks the tree looking for the three canonical shapes emitted by
+    :func:`generate_list_predicate` and rewrites each match to a
+    ``ListPredicateFunction``.  Shapes that don't match exactly are left
+    untouched — false negatives are tolerated, false positives are not.
+
+    Idempotent.  Registered on :attr:`CypherDialect.WRITE_TRANSFORMATIONS`
+    before :func:`next_to_with` so quantifier expressions are lifted to their
+    native form before statement boundaries are re-segmented.
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.ExistsPredicate):
+            continue
+        match = _match_lowered_quantifier(node)
+        if match is None:
+            continue
+        replace_target, lpf = match
+        _replace_in_parent(replace_target, lpf)
+    return tree
+
+
+def _match_lowered_quantifier(
+    exists: ast.ExistsPredicate,
+) -> tuple[Expression, ListPredicateFunction] | None:
+    """Detect a lowered any/all/none shape at *exists* and build its
+    replacement.
+
+    Returns ``(replace_target, lpf)``:
+
+    - *replace_target* is the AST node to swap out — the
+      ``ParenthesizedValueExpression`` wrapping ``(NOT EXISTS {...})`` for
+      none/all, or the ``ExistsPredicate`` itself for any.
+    - *lpf* is the :class:`ListPredicateFunction` to splice in.
+
+    Returns ``None`` if any structural check fails.
+    """
+    body = _extract_quantifier_body(exists)
+    if body is None:
+        return None
+    alias, source, predicate = body
+
+    negated, replace_target = _peel_outer_negation(exists)
+
+    if negated:
+        inner = _peel_predicate_negation(predicate)
+        if inner is not None:
+            kind = ListPredicateFunction.Kind.ALL
+            predicate = inner
+        else:
+            kind = ListPredicateFunction.Kind.NONE
+    else:
+        kind = ListPredicateFunction.Kind.ANY
+
+    lpf = ListPredicateFunction(
+        kind=kind,
+        variable=alias,
+        source=source,
+        predicate=predicate,
+    )
+    return replace_target, lpf
+
+
+def _extract_quantifier_body(
+    exists: ast.ExistsPredicate,
+) -> tuple[Expression, Expression, Expression] | None:
+    """Return ``(alias, source, predicate)`` if *exists* matches the canonical
+    ``EXISTS {FOR x IN L FILTER WHERE P RETURN x}`` shape, else ``None``.
+    """
+    nqs = exists.exists_predicate
+    if not isinstance(nqs, ast.NestedQuerySpecification):
+        return None
+
+    sb = nqs.query_specification.statement_block
+    if sb.list_next_statement:
+        return None
+
+    stmt = sb.statement
+    if not isinstance(stmt, ast.CompositeQueryExpression):
+        return None
+    if stmt.query_conjunction_elements:
+        return None
+
+    alqs = stmt.left_composite_query_primary
+    if not isinstance(alqs, ast.AmbientLinearQueryStatement):
+        return None
+    inner = alqs.ambient_linear_query_statement
+    slqs_prs = ast.AmbientLinearQueryStatement._SimpleLinearQueryStatementPrimitiveResultStatement
+    if not isinstance(inner, slqs_prs):
+        return None
+
+    slqs = inner.simple_linear_query_statement
+    if slqs is None or len(slqs.list_simple_query_statement) != 2:
+        return None
+    for_stmt, filter_stmt = slqs.list_simple_query_statement
+    if not isinstance(for_stmt, ast.ForStatement):
+        return None
+    if for_stmt.for_ordinality_or_offset is not None:
+        return None
+    if not isinstance(filter_stmt, ast.FilterStatement):
+        return None
+
+    where_clause = filter_stmt.filter_statement
+    if not isinstance(where_clause, ast.WhereClause):
+        return None
+
+    alias = for_stmt.for_item.for_item_alias.binding_variable
+    source = for_stmt.for_item.for_item_source
+    predicate = where_clause.search_condition
+
+    if not _return_targets_alias(inner.primitive_result_statement, alias):
+        return None
+
+    return alias, source, predicate
+
+
+def _return_targets_alias(prs: ast.PrimitiveResultStatement, alias: Expression) -> bool:
+    """True if *prs* is exactly ``RETURN <alias>`` — one item, no aliasing, no
+    extra clauses — and its target binding name equals the FOR alias's name.
+    """
+    ret_node = prs.primitive_result_statement
+    if not isinstance(
+        ret_node, ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement
+    ):
+        return False
+    if ret_node.order_by_and_page_statement is not None:
+        return False
+
+    body = ret_node.return_statement.return_statement_body.return_statement_body
+    if not isinstance(body, ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause):
+        return False
+    if body.set_quantifier is not None or body.group_by_clause is not None:
+        return False
+    items = body.return_item_list.list_return_item
+    if len(items) != 1:
+        return False
+    item = items[0]
+    if item.return_item_alias is not None:
+        return False
+
+    alias_name = getattr(alias, "name", None)
+    return alias_name is not None and _expression_is_bare_binding(
+        item.aggregating_value_expression, alias_name
+    )
+
+
+def _expression_is_bare_binding(expr: Expression, name: str) -> bool:
+    """True if *expr* is a value expression that resolves to a bare reference
+    to a binding named *name* — no operators, no arithmetic, no aliasing.
+    """
+    cur: Expression | None = expr
+    while cur is not None:
+        if isinstance(cur, ast.BindingVariableReference):
+            return cur.binding_variable.name == name
+        if isinstance(cur, ast.BooleanFactor) and cur.not_:
+            return False
+        if isinstance(cur, ast.BooleanValueExpression) and cur.ops:
+            return False
+        if isinstance(cur, ast.ArithmeticValueExpression | ast.ArithmeticTerm) and cur.steps:
+            return False
+        if isinstance(cur, ast.ArithmeticFactor) and cur.sign is ast.Sign.MINUS_SIGN:
+            return False
+        next_node: Expression | None = None
+        for attr in (
+            "boolean_term",
+            "base",
+            "boolean_test",
+            "boolean_primary",
+            "value_expression",
+            "arithmetic_primary",
+        ):
+            v = getattr(cur, attr, None)
+            if v is None:
+                continue
+            if isinstance(v, list):
+                if len(v) != 1:
+                    return False
+                v = v[0]
+            next_node = v
+            break
+        if next_node is None or next_node is cur:
+            return False
+        cur = next_node
+    return False
+
+
+def _peel_outer_negation(exists: ast.ExistsPredicate) -> tuple[bool, Expression]:
+    """Inspect the chain above *exists* for the ``(NOT EXISTS {...})`` wrapper.
+
+    :func:`generate_list_predicate` emits none/all as
+    ``(NOT EXISTS {...})`` — a single ``BooleanFactor(not_=True)`` inside a
+    ``ParenthesizedValueExpression`` (or ``ParenthesizedBooleanValueExpression``,
+    depending on the parse path).  Nested quantifiers in the round-trip
+    survive this match via stale ``_parent`` pointers (Pydantic does not
+    rewrite ``_parent`` when a field is reassigned), so even the inner
+    ``EXISTS`` still walks back to its original parenthesized wrapper.
+
+    Returns ``(negated, replace_target)``:
+    - ``negated`` — True if the paren-wrapped negation shape is present.
+    - ``replace_target`` — the ``Parenthesized*ValueExpression`` to swap out
+      when negated; *exists* otherwise.
+    """
+    parent = exists._parent
+    if not isinstance(parent, ast.BooleanTest):
+        return False, exists
+    bf = parent._parent
+    if not isinstance(bf, ast.BooleanFactor) or not bf.not_:
+        return False, exists
+    bt = bf._parent
+    if not isinstance(bt, ast.BooleanTerm) or len(bt.list_boolean_factor) != 1:
+        return False, exists
+    bve = bt._parent
+    if not isinstance(bve, ast.BooleanValueExpression) or bve.ops:
+        return False, exists
+    pve = bve._parent
+    if isinstance(pve, ast.ParenthesizedValueExpression | ast.ParenthesizedBooleanValueExpression):
+        return True, pve
+    return False, exists
+
+
+def _peel_predicate_negation(predicate: Expression) -> Expression | None:
+    """If *predicate* matches the ``all`` shape ``NOT (P)``, return the inner
+    predicate ``P``.  Returns ``None`` if the predicate is not a single
+    top-level negation.
+    """
+    if not isinstance(predicate, ast.BooleanValueExpression) or predicate.ops:
+        return None
+    bt = predicate.boolean_term
+    if len(bt.list_boolean_factor) != 1:
+        return None
+    bf = bt.list_boolean_factor[0]
+    if not bf.not_:
+        return None
+    inner = bf.boolean_test
+    if inner.truth_value is not None:
+        return None
+    bp = inner.boolean_primary
+    if isinstance(bp, ast.ParenthesizedBooleanValueExpression):
+        return bp.boolean_value_expression
+    if isinstance(bp, ast.ParenthesizedValueExpression):
+        inner_expr = bp.value_expression
+        if isinstance(inner_expr, ast.BooleanValueExpression):
+            return inner_expr
+    return None
+
+
+# ===========================================================================
 # implicit_to_explicit_group_by — make Cypher's implicit grouping explicit
 # ===========================================================================
 
