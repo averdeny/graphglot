@@ -1205,14 +1205,9 @@ def _match_lowered_comprehension(
     if for_stmt.for_ordinality_or_offset is not None:
         return None
 
-    where_clause: ast.WhereClause | None = None
-    if filter_stmt is not None:
-        if not isinstance(filter_stmt, ast.FilterStatement):
-            return None
-        candidate = filter_stmt.filter_statement
-        if not isinstance(candidate, ast.WhereClause):
-            return None
-        where_clause = candidate
+    where_ok, where_clause = _extract_filter_where(filter_stmt)
+    if not where_ok:
+        return None
 
     alias = for_stmt.for_item.for_item_alias.binding_variable
     source = for_stmt.for_item.for_item_source
@@ -1284,6 +1279,127 @@ def _descend_to_aggregate(expr: Expression) -> ast.AggregateFunction | None:
     """
     leaf = _descend_through_value_wrappers(expr)
     return leaf if isinstance(leaf, ast.AggregateFunction) else None
+
+
+# ===========================================================================
+# pattern_comprehension_resugar — invert FullGQL's [(pattern) | E] lowering
+# ===========================================================================
+
+# Inverse of generate_pattern_comprehension_gql at
+# graphglot/generator/generators/cypher_compat.py:137, which emits:
+#
+#   [(pattern) WHERE P | E]  → VALUE {MATCH <pattern> FILTER WHERE P RETURN COLLECT_LIST(E)}
+#   [(pattern) | E]          → VALUE {MATCH <pattern> RETURN COLLECT_LIST(E)}
+#
+# Structurally a MATCH-bodied sibling of list_comprehension_resugar — shares
+# `_subquery_inner_segment` and `_extract_collect_list_projection`.
+
+
+def pattern_comprehension_resugar(tree: Expression) -> Expression:
+    """Re-sugar GQL-lowered VALUE{MATCH…} subqueries back to ``[(pattern) | E]``.
+
+    Inverse of :func:`generate_pattern_comprehension_gql`.  Walks the tree
+    for ``ValueQueryExpression`` nodes whose body matches the canonical
+    ``{MATCH <pattern> [FILTER WHERE P] RETURN COLLECT_LIST(E)}`` shape and
+    rewrites each to a :class:`CypherPatternComprehension`.
+
+    Idempotent.  Registered on :attr:`CypherDialect.WRITE_TRANSFORMATIONS`
+    independently of :func:`list_comprehension_resugar` — both target
+    ``ValueQueryExpression`` but match on disjoint inner-statement types
+    (``ForStatement`` vs ``SimpleMatchStatement``).
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.ValueQueryExpression):
+            continue
+        pc = _match_lowered_pattern_comprehension(node)
+        if pc is None:
+            continue
+        _replace_in_parent(node, pc)
+    return tree
+
+
+def _match_lowered_pattern_comprehension(
+    vqe: ast.ValueQueryExpression,
+) -> CypherPatternComprehension | None:
+    """Detect a lowered pattern-comprehension shape at *vqe* and build its
+    :class:`CypherPatternComprehension` replacement.
+
+    Returns ``None`` if any structural check fails — including when the
+    body is the FOR-bodied list-comprehension shape (handled by
+    :func:`list_comprehension_resugar`).
+    """
+    nqs = vqe.nested_query_specification
+    if not isinstance(nqs, ast.NestedQuerySpecification):
+        return None
+    segment = _subquery_inner_segment(nqs)
+    if segment is None:
+        return None
+    statements, prs = segment
+
+    if len(statements) == 1:
+        match_stmt, filter_stmt = statements[0], None
+    elif len(statements) == 2:
+        match_stmt, filter_stmt = statements
+    else:
+        return None
+
+    # Reject OptionalMatchStatement and any future MatchStatement subclass:
+    # Cypher pattern comprehensions only ever produce a SimpleMatchStatement
+    # body (the bare `[(pattern) | E]` form).
+    if type(match_stmt) is not ast.SimpleMatchStatement:
+        return None
+
+    gpbt = match_stmt.graph_pattern_binding_table
+    if gpbt.graph_pattern_yield_clause is not None:
+        return None
+    gp = gpbt.graph_pattern
+    if gp.match_mode is not None or gp.keep_clause is not None:
+        return None
+    if gp.graph_pattern_where_clause is not None:
+        return None
+    path_patterns = gp.path_pattern_list.list_path_pattern
+    if len(path_patterns) != 1:
+        return None
+    pattern = path_patterns[0]
+
+    where_ok, where_clause = _extract_filter_where(filter_stmt)
+    if not where_ok:
+        return None
+
+    projection = _extract_collect_list_projection(prs)
+    if projection is None:
+        return None
+
+    return CypherPatternComprehension(
+        pattern=pattern,
+        where_clause=where_clause,
+        projection=projection,
+    )
+
+
+def _extract_filter_where(
+    filter_stmt: ast.SimpleDataAccessingStatement | None,
+) -> tuple[bool, ast.WhereClause | None]:
+    """Validate the optional second statement of a ``{FOR/MATCH … FILTER WHERE
+    P RETURN COLLECT_LIST(E)}`` subquery body.
+
+    Returns ``(ok, where_clause)``:
+    - ``(True, None)`` when *filter_stmt* is ``None`` (no FILTER present).
+    - ``(True, WhereClause)`` when *filter_stmt* is a valid
+      ``FilterStatement`` wrapping a single ``WhereClause``.
+    - ``(False, None)`` when the shape diverges from the canonical lowering.
+
+    Shared by :func:`_match_lowered_comprehension` (LC) and
+    :func:`_match_lowered_pattern_comprehension` (PC).
+    """
+    if filter_stmt is None:
+        return True, None
+    if not isinstance(filter_stmt, ast.FilterStatement):
+        return False, None
+    candidate = filter_stmt.filter_statement
+    if not isinstance(candidate, ast.WhereClause):
+        return False, None
+    return True, candidate
 
 
 # ===========================================================================

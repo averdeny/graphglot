@@ -114,11 +114,6 @@ _XCD_LBL = XFailEntry(
     "Label predicate (a:B) wrapped in EXISTS; need re-sugar (followups §5)",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
-_XCD_PC = XFailEntry(
-    "Pattern comprehension lowered to VALUE{MATCH...COLLECT_LIST(...)}; need "
-    "re-sugar (separate from list-comprehension transform)",
-    XFailCategory.UNSUPPORTED_FEATURE,
-)
 _XCD_SW = XFailEntry(
     "STARTS WITH desugared to LEFT(...)=y; need re-sugar (followups §7)",
     XFailCategory.UNSUPPORTED_FEATURE,
@@ -299,11 +294,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row2": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row3": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row4": _XCD_QN,
-    # Pattern comprehensions wrapped in size() — scoped out of list_comprehension_resugar
-    "List6__7_Using_size_of_pattern_comprehension_to_test_existence": _XCD_PC,
-    "List6__8_Get_node_degree_via_size_of_pattern_comprehension": _XCD_PC,
-    "List6__9_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_PC,
-    "List6__10_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_PC,
 }
 
 

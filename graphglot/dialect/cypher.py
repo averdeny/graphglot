@@ -64,6 +64,7 @@ from graphglot.transformations import (
     list_comprehension_resugar,
     list_predicate_resugar,
     next_to_with,
+    pattern_comprehension_resugar,
 )
 
 # =============================================================================
@@ -3210,6 +3211,7 @@ class CypherDialect(Dialect):
     WRITE_TRANSFORMATIONS: t.ClassVar[list] = [
         list_comprehension_resugar,
         list_predicate_resugar,
+        pattern_comprehension_resugar,
         next_to_with,
     ]
 
