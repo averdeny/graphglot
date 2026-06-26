@@ -114,8 +114,9 @@ _XCD_LBL = XFailEntry(
     "Label predicate (a:B) wrapped in EXISTS; need re-sugar (followups §5)",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
-_XCD_LC = XFailEntry(
-    "List comprehension lowered to VALUE subquery; need re-sugar (followups §2)",
+_XCD_PC = XFailEntry(
+    "Pattern comprehension lowered to VALUE{MATCH...COLLECT_LIST(...)}; need "
+    "re-sugar (separate from list-comprehension transform)",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
 _XCD_SW = XFailEntry(
@@ -188,39 +189,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row1": _XCD_UC,
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row2": _XCD_UC,
     "WithWhere7__3_WHERE_sees_both_variable_bound_before_but_not_after_WITH_and": _XCD_UC,
-    # ---- MM_list_comprehension (32 scenarios) ----
-    "List12__1_Collect_and_extract_using_a_list_comprehension": _XCD_LC,
-    "Set1__5_Adding_a_list_property": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_float__row2": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_list__row0": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_map__row1": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_node__row3": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_path__row5": _XCD_LC,
-    "TypeConversion1__5_Fail_toBoolean_on_invalid_types_Example_relationship__row4": _XCD_LC,
-    "TypeConversion2__3_toInteger_handling_mixed_number_types": _XCD_LC,
-    "TypeConversion2__4_toInteger_handling_Any_type": _XCD_LC,
-    "TypeConversion2__5_toInteger_on_a_list_of_strings": _XCD_LC,
-    "TypeConversion2__8_Fail_toInteger_on_invalid_types_Example_list__row0": _XCD_LC,
-    "TypeConversion2__8_Fail_toInteger_on_invalid_types_Example_map__row1": _XCD_LC,
-    "TypeConversion2__8_Fail_toInteger_on_invalid_types_Example_node__row2": _XCD_LC,
-    "TypeConversion2__8_Fail_toInteger_on_invalid_types_Example_path__row4": _XCD_LC,
-    "TypeConversion2__8_Fail_toInteger_on_invalid_types_Example_relationship__row3": _XCD_LC,
-    "TypeConversion3__1_toFloat_on_mixed_number_types": _XCD_LC,
-    "TypeConversion3__3_toFloat_handling_Any_type": _XCD_LC,
-    "TypeConversion3__4_toFloat_on_a_list_of_strings": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_boolean__row0": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_list__row1": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_map__row2": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_node__row3": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_path__row5": _XCD_LC,
-    "TypeConversion3__6_Fail_toFloat_on_invalid_types_Example_relationship__row4": _XCD_LC,
-    "TypeConversion4__10_Fail_toString_on_invalid_types_Example_list__row0": _XCD_LC,
-    "TypeConversion4__10_Fail_toString_on_invalid_types_Example_map__row1": _XCD_LC,
-    "TypeConversion4__10_Fail_toString_on_invalid_types_Example_node__row2": _XCD_LC,
-    "TypeConversion4__10_Fail_toString_on_invalid_types_Example_path__row4": _XCD_LC,
-    "TypeConversion4__10_Fail_toString_on_invalid_types_Example_relationship__row3": _XCD_LC,
-    "TypeConversion4__5_toString_should_work_on_Any_type": _XCD_LC,
-    "TypeConversion4__6_toString_on_a_list_of_integers": _XCD_LC,
     # ---- MM_label_pred_wrapped (23 scenarios) ----
     "Match7__25_Optionally_matching_self_loops_without_matches": _XCD_LBL,
     "MatchWhere4__2_Join_with_disjunctive_multi_part_predicates_including_patter": _XCD_LBL,
@@ -273,13 +241,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     # ---- Surfaced after moving ``resolve_ambiguous`` to GqlDialect write-side:
     # scenarios that previously skipped at Stage 1 (FullGQL couldn't generate
     # ambiguous ``Size`` etc.) now reach Stage 2 and fall into the same buckets.
-    # MM_list_comprehension (+6)
-    "List12__2_Collect_and_filter_using_a_list_comprehension": _XCD_LC,
-    "List12__3_Size_of_list_comprehension": _XCD_LC,
-    "List6__10_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_LC,
-    "List6__7_Using_size_of_pattern_comprehension_to_test_existence": _XCD_LC,
-    "List6__8_Get_node_degree_via_size_of_pattern_comprehension": _XCD_LC,
-    "List6__9_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_LC,
     # MM_unknown (+4) — list concat shape (Cypher uses `+`, GQL emits `||`)
     "Set1__6_Concatenate_elements_onto_a_list_property": _XCD_UC,
     "Set1__7_Concatenate_elements_in_reverse_onto_a_list_property": _XCD_UC,
@@ -338,6 +299,11 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row2": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row3": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row4": _XCD_QN,
+    # Pattern comprehensions wrapped in size() — scoped out of list_comprehension_resugar
+    "List6__7_Using_size_of_pattern_comprehension_to_test_existence": _XCD_PC,
+    "List6__8_Get_node_degree_via_size_of_pattern_comprehension": _XCD_PC,
+    "List6__9_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_PC,
+    "List6__10_Get_node_degree_via_size_of_pattern_comprehension_that_speci": _XCD_PC,
 }
 
 

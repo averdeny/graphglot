@@ -929,7 +929,47 @@ def _extract_quantifier_body(
     nqs = exists.exists_predicate
     if not isinstance(nqs, ast.NestedQuerySpecification):
         return None
+    segment = _subquery_inner_segment(nqs)
+    if segment is None:
+        return None
+    statements, prs = segment
 
+    if len(statements) != 2:
+        return None
+    for_stmt, filter_stmt = statements
+    if not isinstance(for_stmt, ast.ForStatement):
+        return None
+    if for_stmt.for_ordinality_or_offset is not None:
+        return None
+    if not isinstance(filter_stmt, ast.FilterStatement):
+        return None
+
+    where_clause = filter_stmt.filter_statement
+    if not isinstance(where_clause, ast.WhereClause):
+        return None
+
+    alias = for_stmt.for_item.for_item_alias.binding_variable
+    source = for_stmt.for_item.for_item_source
+    predicate = where_clause.search_condition
+
+    if not _return_targets_alias(prs, alias):
+        return None
+
+    return alias, source, predicate
+
+
+def _subquery_inner_segment(
+    nqs: ast.NestedQuerySpecification,
+) -> tuple[list[ast.SimpleDataAccessingStatement], ast.PrimitiveResultStatement] | None:
+    """Navigate the canonical FullGQL subquery chain and return its inner
+    ``(statements, primitive_result_statement)`` pair.
+
+    Returns ``None`` if any link diverges from the canonical shape emitted
+    by ``ExistsPredicate`` / ``ValueQueryExpression`` lowerings — multi-NEXT
+    body, non-composite statement, UNION conjunctions, non-ALQS wrapping, or
+    a non-SLQS+PRS inner.  Shared by :func:`_extract_quantifier_body` (LP
+    matcher) and :func:`_match_lowered_comprehension` (LC matcher).
+    """
     sb = nqs.query_specification.statement_block
     if sb.list_next_statement:
         return None
@@ -949,28 +989,9 @@ def _extract_quantifier_body(
         return None
 
     slqs = inner.simple_linear_query_statement
-    if slqs is None or len(slqs.list_simple_query_statement) != 2:
+    if slqs is None:
         return None
-    for_stmt, filter_stmt = slqs.list_simple_query_statement
-    if not isinstance(for_stmt, ast.ForStatement):
-        return None
-    if for_stmt.for_ordinality_or_offset is not None:
-        return None
-    if not isinstance(filter_stmt, ast.FilterStatement):
-        return None
-
-    where_clause = filter_stmt.filter_statement
-    if not isinstance(where_clause, ast.WhereClause):
-        return None
-
-    alias = for_stmt.for_item.for_item_alias.binding_variable
-    source = for_stmt.for_item.for_item_source
-    predicate = where_clause.search_condition
-
-    if not _return_targets_alias(inner.primitive_result_statement, alias):
-        return None
-
-    return alias, source, predicate
+    return list(slqs.list_simple_query_statement), inner.primitive_result_statement
 
 
 def _return_targets_alias(prs: ast.PrimitiveResultStatement, alias: Expression) -> bool:
@@ -1007,18 +1028,31 @@ def _expression_is_bare_binding(expr: Expression, name: str) -> bool:
     """True if *expr* is a value expression that resolves to a bare reference
     to a binding named *name* — no operators, no arithmetic, no aliasing.
     """
+    leaf = _descend_through_value_wrappers(expr)
+    return isinstance(leaf, ast.BindingVariableReference) and leaf.binding_variable.name == name
+
+
+def _descend_through_value_wrappers(expr: Expression) -> Expression | None:
+    """Walk down single-child arithmetic/boolean wrapper chains and return
+    the unwrapped leaf, or ``None`` if any branch carries operators (AND,
+    OR, +, *, NOT, MINUS sign, multi-element list).
+
+    Used to peer through the ``ArithmeticValueExpression →
+    ArithmeticTerm → ArithmeticFactor → arithmetic_primary`` (or boolean
+    counterpart) wrapping that FullGQL parses around every leaf node,
+    when callers need to match on the leaf's exact type without caring
+    about the surrounding wrappers.
+    """
     cur: Expression | None = expr
     while cur is not None:
-        if isinstance(cur, ast.BindingVariableReference):
-            return cur.binding_variable.name == name
         if isinstance(cur, ast.BooleanFactor) and cur.not_:
-            return False
+            return None
         if isinstance(cur, ast.BooleanValueExpression) and cur.ops:
-            return False
+            return None
         if isinstance(cur, ast.ArithmeticValueExpression | ast.ArithmeticTerm) and cur.steps:
-            return False
+            return None
         if isinstance(cur, ast.ArithmeticFactor) and cur.sign is ast.Sign.MINUS_SIGN:
-            return False
+            return None
         next_node: Expression | None = None
         for attr in (
             "boolean_term",
@@ -1033,14 +1067,14 @@ def _expression_is_bare_binding(expr: Expression, name: str) -> bool:
                 continue
             if isinstance(v, list):
                 if len(v) != 1:
-                    return False
+                    return None
                 v = v[0]
             next_node = v
             break
         if next_node is None or next_node is cur:
-            return False
+            return cur
         cur = next_node
-    return False
+    return None
 
 
 def _peel_outer_negation(exists: ast.ExistsPredicate) -> tuple[bool, Expression]:
@@ -1101,6 +1135,155 @@ def _peel_predicate_negation(predicate: Expression) -> Expression | None:
         if isinstance(inner_expr, ast.BooleanValueExpression):
             return inner_expr
     return None
+
+
+# ===========================================================================
+# list_comprehension_resugar — invert FullGQL's [x IN L | E] lowering
+# ===========================================================================
+
+# Inverse of generate_list_comprehension_gql at
+# graphglot/generator/generators/cypher_compat.py:117, which emits:
+#
+#   [x IN L WHERE P | E]  → VALUE {FOR x IN L FILTER WHERE P RETURN COLLECT_LIST(E)}
+#   [x IN L | E]          → VALUE {FOR x IN L RETURN COLLECT_LIST(E)}
+#   [x IN L WHERE P]      → VALUE {FOR x IN L FILTER WHERE P RETURN COLLECT_LIST(x)}
+#
+# CypherPatternComprehension (matched MATCH-bodied VALUE subqueries) is a
+# separate AST class with a different inner shape and is intentionally NOT
+# handled here.
+
+
+def list_comprehension_resugar(tree: Expression) -> Expression:
+    """Re-sugar GQL-lowered VALUE subqueries back to ``[x IN L WHERE P | E]``.
+
+    Inverse of :func:`generate_list_comprehension_gql`.  Walks the tree for
+    ``ValueQueryExpression`` nodes whose body matches the canonical
+    ``{FOR x IN L [FILTER WHERE P] RETURN COLLECT_LIST(E)}`` shape and
+    rewrites each to a :class:`ListComprehension`.  Shapes that don't
+    match are left untouched.
+
+    Idempotent.  Registered on :attr:`CypherDialect.WRITE_TRANSFORMATIONS`
+    independently of :func:`list_predicate_resugar` — they target disjoint
+    AST node types (``ValueQueryExpression`` vs ``ExistsPredicate``).
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.ValueQueryExpression):
+            continue
+        lc = _match_lowered_comprehension(node)
+        if lc is None:
+            continue
+        _replace_in_parent(node, lc)
+    return tree
+
+
+def _match_lowered_comprehension(
+    vqe: ast.ValueQueryExpression,
+) -> ListComprehension | None:
+    """Detect a lowered list-comprehension shape at *vqe* and build its
+    :class:`ListComprehension` replacement.  The caller is responsible for
+    splicing the new node into *vqe*'s parent slot.
+
+    Returns ``None`` if any structural check fails.
+    """
+    nqs = vqe.nested_query_specification
+    if not isinstance(nqs, ast.NestedQuerySpecification):
+        return None
+    segment = _subquery_inner_segment(nqs)
+    if segment is None:
+        return None
+    statements, prs = segment
+
+    if len(statements) == 1:
+        for_stmt, filter_stmt = statements[0], None
+    elif len(statements) == 2:
+        for_stmt, filter_stmt = statements
+    else:
+        return None
+
+    if not isinstance(for_stmt, ast.ForStatement):
+        return None
+    if for_stmt.for_ordinality_or_offset is not None:
+        return None
+
+    where_clause: ast.WhereClause | None = None
+    if filter_stmt is not None:
+        if not isinstance(filter_stmt, ast.FilterStatement):
+            return None
+        candidate = filter_stmt.filter_statement
+        if not isinstance(candidate, ast.WhereClause):
+            return None
+        where_clause = candidate
+
+    alias = for_stmt.for_item.for_item_alias.binding_variable
+    source = for_stmt.for_item.for_item_source
+
+    projection = _extract_collect_list_projection(prs)
+    if projection is None:
+        return None
+
+    # Collapse a bare-alias projection back to None so the round-trip emits
+    # ``[x IN L]`` not ``[x IN L | x]``.
+    alias_name = getattr(alias, "name", None)
+    if alias_name is not None and _expression_is_bare_binding(projection, alias_name):
+        projection = None
+
+    return ListComprehension(
+        variable=alias,
+        source=source,
+        where_clause=where_clause,
+        projection=projection,
+    )
+
+
+def _extract_collect_list_projection(
+    prs: ast.PrimitiveResultStatement,
+) -> Expression | None:
+    """Return the projection expression *E* if *prs* is exactly
+    ``RETURN COLLECT_LIST(E)`` — one item, no aliasing, no extra clauses,
+    no DISTINCT — else ``None``.
+    """
+    ret_node = prs.primitive_result_statement
+    if not isinstance(
+        ret_node, ast.PrimitiveResultStatement._ReturnStatementOrderByAndPageStatement
+    ):
+        return None
+    if ret_node.order_by_and_page_statement is not None:
+        return None
+
+    body = ret_node.return_statement.return_statement_body.return_statement_body
+    if not isinstance(body, ast.ReturnStatementBody._SetQuantifierReturnItemListGroupByClause):
+        return None
+    if body.set_quantifier is not None or body.group_by_clause is not None:
+        return None
+    items = body.return_item_list.list_return_item
+    if len(items) != 1:
+        return None
+    item = items[0]
+    if item.return_item_alias is not None:
+        return None
+
+    agg = _descend_to_aggregate(item.aggregating_value_expression)
+    if agg is None:
+        return None
+    gsf = agg.aggregate_function
+    if not isinstance(gsf, ast.GeneralSetFunction):
+        return None
+    if gsf.set_quantifier is not None:
+        return None
+    if not isinstance(
+        gsf.general_set_function_type.general_set_function_type,
+        ast.GeneralSetFunctionType._CollectList,
+    ):
+        return None
+    return gsf.value_expression
+
+
+def _descend_to_aggregate(expr: Expression) -> ast.AggregateFunction | None:
+    """Walk down a value-expression wrapper chain to find a single
+    ``AggregateFunction`` at the leaf.
+    """
+    leaf = _descend_through_value_wrappers(expr)
+    return leaf if isinstance(leaf, ast.AggregateFunction) else None
 
 
 # ===========================================================================
