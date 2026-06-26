@@ -65,6 +65,7 @@ from graphglot.transformations import (
     list_predicate_resugar,
     next_to_with,
     pattern_comprehension_resugar,
+    pattern_predicate_resugar,
 )
 
 # =============================================================================
@@ -3212,6 +3213,7 @@ class CypherDialect(Dialect):
         list_comprehension_resugar,
         list_predicate_resugar,
         pattern_comprehension_resugar,
+        pattern_predicate_resugar,
         next_to_with,
     ]
 

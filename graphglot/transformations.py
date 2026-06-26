@@ -14,6 +14,7 @@ from graphglot import ast
 from graphglot.ast.base import Expression
 from graphglot.ast.cypher import (
     CypherPatternComprehension,
+    CypherPatternPredicate,
     CypherWithStatement,
     ListComprehension,
     ListPredicateFunction,
@@ -1400,6 +1401,71 @@ def _extract_filter_where(
     if not isinstance(candidate, ast.WhereClause):
         return False, None
     return True, candidate
+
+
+# ===========================================================================
+# pattern_predicate_resugar — invert FullGQL's (n)-->() → EXISTS{…} lowering
+# ===========================================================================
+
+# Inverse of generate_pattern_predicate at
+# graphglot/generator/generators/cypher_compat.py:72, which emits:
+#
+#   (n)-[:T]->()  →  EXISTS {(n) -[:T]-> ()}
+#
+# Unlike LP/LC/PC, the EXISTS body here is the ``_ExistsGraphPattern``
+# variant (a bare graph pattern), not a ``NestedQuerySpecification`` —
+# ``_subquery_inner_segment`` does not apply.  The matcher walks the graph
+# pattern directly.
+
+
+def pattern_predicate_resugar(tree: Expression) -> Expression:
+    """Re-sugar GQL-lowered ``EXISTS{<graph pattern>}`` back to Cypher's bare
+    pattern predicate.
+
+    Inverse of :func:`generate_pattern_predicate`.  Walks the tree for
+    ``ExistsPredicate`` nodes whose body is a ``_ExistsGraphPattern``
+    wrapping a single bare ``PathPattern`` and rewrites each to a
+    :class:`CypherPatternPredicate`.
+
+    Negation context (``NOT EXISTS{…}``) is preserved by leaving the
+    surrounding ``BooleanFactor(not_=True)`` untouched — replacing the
+    inner ``ExistsPredicate`` with the ``CypherPatternPredicate`` keeps
+    the negation wrapper applicable to the new node.
+    """
+    for node in list(tree.dfs()):
+        if not isinstance(node, ast.ExistsPredicate):
+            continue
+        cpp = _match_lowered_pattern_predicate(node)
+        if cpp is None:
+            continue
+        _replace_in_parent(node, cpp)
+    return tree
+
+
+def _match_lowered_pattern_predicate(
+    exists: ast.ExistsPredicate,
+) -> CypherPatternPredicate | None:
+    """Detect a lowered pattern-predicate shape at *exists* and build its
+    :class:`CypherPatternPredicate` replacement.  Returns ``None`` if the
+    body is anything other than a canonical single-PathPattern selector.
+    """
+    body = exists.exists_predicate
+    if not isinstance(body, ast.ExistsPredicate._ExistsGraphPattern):
+        return None
+
+    gp = body.graph_pattern
+    if gp.match_mode is not None or gp.keep_clause is not None:
+        return None
+    if gp.graph_pattern_where_clause is not None:
+        return None
+    path_patterns = gp.path_pattern_list.list_path_pattern
+    if len(path_patterns) != 1:
+        return None
+    pattern = path_patterns[0]
+    if pattern.path_variable_declaration is not None or pattern.path_pattern_prefix is not None:
+        return None
+
+    return CypherPatternPredicate(pattern=pattern)
 
 
 # ===========================================================================

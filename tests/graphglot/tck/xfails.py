@@ -110,10 +110,6 @@ _XCD_EW = XFailEntry(
     "ENDS WITH desugared to RIGHT(...)=y; need re-sugar (followups §7)",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
-_XCD_LBL = XFailEntry(
-    "Label predicate (a:B) wrapped in EXISTS; need re-sugar (followups §5)",
-    XFailCategory.UNSUPPORTED_FEATURE,
-)
 _XCD_SW = XFailEntry(
     "STARTS WITH desugared to LEFT(...)=y; need re-sugar (followups §7)",
     XFailCategory.UNSUPPORTED_FEATURE,
@@ -123,6 +119,16 @@ _XCD_UC = XFailEntry(
 )
 _XCD_WS = XFailEntry(
     "WITH * over empty scope dropped; need bare-NEXT encoding (followups §8)",
+    XFailCategory.UNSUPPORTED_FEATURE,
+)
+# Existential-subquery normalization: Cypher source ``exists { (n)-->() }``
+# (explicit subquery syntax) and ``(n)-->()`` (bare pattern predicate) lower
+# to byte-identical GQL.  pattern_predicate_resugar picks the bare form,
+# which is semantically identical but breaks strict AST equality when the
+# source used the explicit form.  Same shape of loss as `_XCD_QN`.
+_XCD_ESQ = XFailEntry(
+    "Existential subquery normalization: source uses ``exists {pattern}`` "
+    "but lowers to the same GQL as the equivalent bare pattern predicate",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
 # Inherent quantifier normalization loss: source uses one form (e.g.
@@ -184,30 +190,6 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row1": _XCD_UC,
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row2": _XCD_UC,
     "WithWhere7__3_WHERE_sees_both_variable_bound_before_but_not_after_WITH_and": _XCD_UC,
-    # ---- MM_label_pred_wrapped (23 scenarios) ----
-    "Match7__25_Optionally_matching_self_loops_without_matches": _XCD_LBL,
-    "MatchWhere4__2_Join_with_disjunctive_multi_part_predicates_including_patter": _XCD_LBL,
-    "Pattern1__10_Matching_on_a_specific_type_of_undirected_connection_with_le": _XCD_LBL,
-    "Pattern1__12_Matching_two_nodes_on_a_single_directed_connection_between_t": _XCD_LBL,
-    "Pattern1__13_Fail_on_matching_two_nodes_on_a_single_undirected_connection": _XCD_LBL,
-    "Pattern1__14_Matching_two_nodes_on_a_specific_type_of_single_outgoing_dir": _XCD_LBL,
-    "Pattern1__15_Matching_two_nodes_on_a_specific_type_of_single_undirected_c": _XCD_LBL,
-    "Pattern1__16_Matching_two_nodes_on_a_specific_type_of_a_variable_length_o": _XCD_LBL,
-    "Pattern1__17_Matching_two_nodes_on_a_specific_type_of_variable_length_und": _XCD_LBL,
-    "Pattern1__18_Matching_two_nodes_on_a_specific_type_of_undirected_connecti": _XCD_LBL,
-    "Pattern1__19_Using_a_negated_existential_pattern_predicate": _XCD_LBL,
-    "Pattern1__1_Matching_on_any_single_outgoing_directed_connection": _XCD_LBL,
-    "Pattern1__20_Using_two_existential_pattern_predicates_in_a_conjunction": _XCD_LBL,
-    "Pattern1__21_Using_two_existential_pattern_predicates_in_a_disjunction": _XCD_LBL,
-    "Pattern1__2_Matching_on_a_single_undirected_connection": _XCD_LBL,
-    "Pattern1__3_Matching_on_any_single_incoming_directed_connection": _XCD_LBL,
-    "Pattern1__4_Matching_on_a_specific_type_of_single_outgoing_directed_conn": _XCD_LBL,
-    "Pattern1__5_Matching_on_a_specific_type_of_single_undirected_connection": _XCD_LBL,
-    "Pattern1__6_Matching_on_a_specific_type_of_single_incoming_directed_conn": _XCD_LBL,
-    "Pattern1__7_Matching_on_a_specific_type_of_a_variable_length_outgoing_di": _XCD_LBL,
-    "Pattern1__8_Matching_on_a_specific_type_of_variable_length_undirected_co": _XCD_LBL,
-    "Pattern1__9_Matching_on_a_specific_type_of_variable_length_incoming_dire": _XCD_LBL,
-    "WithWhere4__2_Join_with_disjunctive_multi_part_predicates_including_patter": _XCD_LBL,
     # ---- MM_starts_with (11 scenarios) ----
     "Precedence4__4_String_predicate_takes_precedence_over_binary_boolean_operat": _XCD_SW,
     "String11__1_Combining_prefix_and_suffix_search": _XCD_SW,
@@ -294,6 +276,9 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row2": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row3": _XCD_QN,
     "Quantifier8__5_All_quantifier_is_equal_whether_the_size_of_the_list_filtere__row4": _XCD_QN,
+    # Explicit ``exists { pattern }`` subquery normalizes to bare pattern predicate
+    "ExistentialSubquery1__1_Simple_subquery_without_WHERE_clause": _XCD_ESQ,
+    "ExistentialSubquery1__3_Simple_subquery_without_WHERE_clause_not_existing_pattern": _XCD_ESQ,
 }
 
 
