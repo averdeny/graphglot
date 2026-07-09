@@ -2246,6 +2246,35 @@ def _generate_unwind_statement(gen: BaseGenerator, expr: ast.ForStatement) -> Fr
     )
 
 
+def _generate_cypher_list_value_expression(
+    gen: BaseGenerator, expr: ast.ListValueExpression
+) -> Fragment:
+    """Cypher uses ``+`` for list concatenation; GQL uses ``||``.
+
+    Mirrors the base ``generate_list_value_expression`` but with ``" + "`` as
+    the separator, so the Cypher parser rebuilds the canonical
+    ``ArithmeticValueExpression`` AST (matching what Cypher source parses to
+    natively, e.g. ``[1, 2] + [3, 4]``).  A single ``list_list_primary`` (a
+    plain list literal like ``[1, 2, 3]``) joins to just itself -- no ``+``.
+    """
+    return gen.join([gen.dispatch(p) for p in expr.list_list_primary], sep=" + ")
+
+
+def _generate_cypher_concatenation_value_expression(
+    gen: BaseGenerator, expr: ast.ConcatenationValueExpression
+) -> Fragment:
+    """Cypher uses ``+`` for concatenation; GQL uses ``||``.
+
+    Sibling of :func:`_generate_cypher_list_value_expression`.  GQL parses a
+    concatenation where at least one operand is *not* a bare list literal
+    (e.g. ``a.numbers || [4, 5]`` in a SET clause) as
+    ``ConcatenationValueExpression`` rather than ``ListValueExpression``, so it
+    needs its own override.  Cypher uses ``+`` for both list and string
+    concatenation, so emitting ``+`` here is correct for every operand type.
+    """
+    return gen.join([gen.dispatch(p) for p in expr.operands], sep=" + ")
+
+
 def _nve_is_complex(
     nve: ast.NumericValueExpression,
     exclude: tuple[type, ...] = (),
@@ -3637,6 +3666,8 @@ class CypherDialect(Dialect):
             ast.ModulusExpression: _generate_cypher_modulus,
             ast.PowerFunction: _generate_cypher_power,
             ast.ForStatement: _generate_unwind_statement,
+            ast.ConcatenationValueExpression: _generate_cypher_concatenation_value_expression,
+            ast.ListValueExpression: _generate_cypher_list_value_expression,
             ast.DateFunction: _generate_cypher_date_function,
             ast.TimeFunction: _generate_cypher_time_function,
             ast.DatetimeFunction: _generate_cypher_datetime_function,

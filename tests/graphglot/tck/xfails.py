@@ -134,6 +134,29 @@ _XCD_QN = XFailEntry(
     "but use different surface forms (e.g. (NOT any(...)) vs none(...))",
     XFailCategory.UNSUPPORTED_FEATURE,
 )
+# Simple-CASE normalization: the forward generator deliberately rewrites
+# Cypher's ``CASE x WHEN v THEN r`` (simple CASE) to GQL's
+# ``CASE WHEN x = v THEN r`` (searched CASE) because the GQL grammar restricts
+# a ``<case operand>`` to NPVEP (spec 20.7), which excludes signed literals
+# and arithmetic.  This rewrite is intentional and cannot be inverted without
+# dropping it -- same kind of inherent equivalence as ``_XCD_QN``.
+_XCD_CN = XFailEntry(
+    "Simple-CASE normalization: source uses ``CASE x WHEN v`` but lowers to "
+    "the same GQL as the equivalent ``CASE WHEN x = v`` searched form "
+    "(spec 20.7 forbids non-NPVEP case operands)",
+    XFailCategory.UNSUPPORTED_FEATURE,
+)
+# UNWIND-with-concatenation: Cypher ``UNWIND <list> + <list>`` lowers to GQL
+# ``FOR x IN <list> || <list>``, which FullGQL cannot parse -- the FOR-source
+# grammar rejects a bare list concatenation there.  Fails at Stage 1
+# (Cypher->GQL), not a generator issue; needs a FullGQL FOR-source grammar
+# extension, out of scope for the list-concat generator overrides.
+_XCD_FOR = XFailEntry(
+    "UNWIND concatenation: ``UNWIND <list> + <list>`` lowers to "
+    "``FOR x IN <list> || <list>`` which FullGQL cannot parse (FOR-source "
+    "grammar rejects bare list concatenation); fails at Stage 1",
+    XFailCategory.UNSUPPORTED_FEATURE,
+)
 
 XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Boolean1__5_Conjunction_is_commutative_on_null": _XCD_UC,
@@ -154,29 +177,18 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     "Comparison3__7_Handling_string_ranges_3": _XCD_UC,
     "Comparison3__8_Handling_string_ranges_4": _XCD_UC,
     "Comparison3__9_Handling_empty_range": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row0": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row1": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row10": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row11": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row2": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row3": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row4": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row5": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row6": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row7": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row8": _XCD_UC,
-    "Conditional2__1_Simple_cases_over_integers__row9": _XCD_UC,
-    "ExistentialSubquery3__3_Nested_full_existential_subquery_with_pattern_predicate": _XCD_UC,
-    "Pattern2__10_Use_a_pattern_comprehension_in_RETURN": _XCD_UC,
-    "Pattern2__11_Use_a_pattern_comprehension_and_ORDER_BY": _XCD_UC,
-    "Pattern2__1_Return_a_pattern_comprehension": _XCD_UC,
-    "Pattern2__2_Return_a_pattern_comprehension_with_label_predicate": _XCD_UC,
-    "Pattern2__3_Return_a_pattern_comprehension_with_bound_nodes": _XCD_UC,
-    "Pattern2__4_Introduce_a_new_node_variable_in_pattern_comprehension": _XCD_UC,
-    "Pattern2__5_Introduce_a_new_relationship_variable_in_pattern_comprehensi": _XCD_UC,
-    "Pattern2__6_Aggregate_on_a_pattern_comprehension": _XCD_UC,
-    "Pattern2__8_Use_a_pattern_comprehension_in_WITH": _XCD_UC,
-    "Pattern2__9_Use_a_variable_length_pattern_comprehension_in_WITH": _XCD_UC,
+    "Conditional2__1_Simple_cases_over_integers__row0": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row1": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row10": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row11": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row2": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row3": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row4": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row5": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row6": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row7": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row8": _XCD_CN,
+    "Conditional2__1_Simple_cases_over_integers__row9": _XCD_CN,
     "Precedence1__8_Null_predicate_takes_precedence_over_comparison_operator": _XCD_UC,
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row0": _XCD_UC,
     "Precedence4__1_Null_predicate_takes_precedence_over_comparison_operator__row1": _XCD_UC,
@@ -185,14 +197,12 @@ XFAIL_CROSS_DIALECT_ROUNDTRIP: dict[str, XFailEntry] = {
     # ---- MM_with_star (2 scenarios) ----
     "Create3__2_WITH_CREATE": _XCD_WS,
     "Create3__3_MATCH_CREATE_WITH_CREATE": _XCD_WS,
-    # ---- Surfaced after moving ``resolve_ambiguous`` to GqlDialect write-side:
-    # scenarios that previously skipped at Stage 1 (FullGQL couldn't generate
-    # ambiguous ``Size`` etc.) now reach Stage 2 and fall into the same buckets.
-    # MM_unknown (+4) — list concat shape (Cypher uses `+`, GQL emits `||`)
-    "Set1__6_Concatenate_elements_onto_a_list_property": _XCD_UC,
-    "Set1__7_Concatenate_elements_in_reverse_onto_a_list_property": _XCD_UC,
-    "List4__1_Concatenating_lists_of_same_type": _XCD_UC,
-    "Unwind1__3_Unwinding_a_concatenation_of_lists": _XCD_UC,
+    # List concat in RETURN/SET position (Cypher `+`, GQL `||`) is now fixed by
+    # the CypherDialect ListValueExpression / ConcatenationValueExpression
+    # generator overrides (List4__1, Set1__6, Set1__7 removed).  UNWIND concat
+    # stays xfail — it fails earlier, at FullGQL parse of
+    # `FOR x IN <list> || <list>`, not in the generator.
+    "Unwind1__3_Unwinding_a_concatenation_of_lists": _XCD_FOR,
     # Quantifier normalization losses (52 scenarios)
     "Precedence1__23_Null_predicates_take_precedence_over_comparison_operators_in__row0": _XCD_QN,
     "Precedence1__23_Null_predicates_take_precedence_over_comparison_operators_in__row1": _XCD_QN,
