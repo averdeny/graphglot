@@ -60,6 +60,7 @@ from graphglot.lexer import Lexer as BaseLexer, Token, TokenType
 from graphglot.parser import Parser as BaseParser
 from graphglot.parser.functions import parse_func_args
 from graphglot.transformations import (
+    _match_lowered_pattern_predicate,
     implicit_to_explicit_group_by,
     list_comprehension_resugar,
     list_predicate_resugar,
@@ -1937,6 +1938,25 @@ def _parse_cypher_boolean_test(parser: BaseParser) -> ast.BooleanTest:
         parser.get_parser(ast.BooleanPrimary),
         parser.opt(_parse__is_not_truth_value),
     )
+
+    # Normalize ``exists { <bare pattern> }`` to the same CypherPatternPredicate
+    # the native bare form ``(n)-->()`` produces above.  The two spellings are
+    # semantically identical, and the generator always emits the bare form (via
+    # pattern_predicate_resugar), so collapsing them at parse keeps round-trips
+    # AST-stable.  Real subqueries (``exists { MATCH … RETURN }``) don't match
+    # the bare-pattern shape and stay ExistsPredicate.
+    #
+    # Only when standalone: a bare pattern predicate is invalid as a comparison
+    # operand (``(n)-->() = true`` doesn't parse), so if a comparison follows we
+    # keep the exists{} form, which IS a valid boolean value expression.
+    if (
+        isinstance(boolean_primary, ast.ExistsPredicate)
+        and truth_value is None
+        and not parser._match(_COMPARISON_OPS)
+    ):
+        pattern_predicate = _match_lowered_pattern_predicate(boolean_primary)
+        if pattern_predicate is not None:
+            boolean_primary = pattern_predicate
 
     # Cypher extension: comparison with non-CVE RHS (e.g. quantifier predicate).
     # Handles: (single(...) OR all(...)) <= any(...),

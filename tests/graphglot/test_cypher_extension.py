@@ -3555,6 +3555,73 @@ class TestPatternPredicates(unittest.TestCase):
         matches = list(results[0].find_all(CypherPatternPredicate))
         self.assertEqual(len(matches), 1)
 
+    def test_exists_bare_pattern_normalized_to_pattern_predicate(self):
+        """``exists { (n)-->() }`` normalizes to the same CypherPatternPredicate
+        as the bare form, so it never round-trips back to an ExistsPredicate."""
+        from graphglot import ast
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE exists { (n)-->() } RETURN n")
+        self.assertEqual(len(list(results[0].find_all(CypherPatternPredicate))), 1)
+        self.assertEqual(len(list(results[0].find_all(ast.ExistsPredicate))), 0)
+
+    def test_exists_real_subquery_stays_exists(self):
+        """A real subquery body (MATCH … RETURN) is not a bare pattern and must
+        stay an ExistsPredicate."""
+        from graphglot import ast
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE exists { MATCH (m) RETURN m } RETURN n")
+        self.assertEqual(len(list(results[0].find_all(CypherPatternPredicate))), 0)
+        self.assertEqual(len(list(results[0].find_all(ast.ExistsPredicate))), 1)
+
+    def test_round_trip_exists_bare_pattern_ast_stable(self):
+        """``exists { (n)-->() }`` round-trips AST-equal (regression: the
+        pattern-predicate resugar used to change the node type on generation)."""
+        results = self._parse("MATCH (n) WHERE exists { (n)-[:NA]->() } RETURN n")
+        results2 = self._parse(self.neo4j.generate(results[0]))
+        self.assertEqual(results[0], results2[0])
+
+    def test_negated_exists_bare_pattern_normalized(self):
+        """``NOT exists { (n)-->() }`` normalizes and preserves negation."""
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE NOT exists { (n)-->() } RETURN n")
+        self.assertEqual(len(list(results[0].find_all(CypherPatternPredicate))), 1)
+        self.assertIn("NOT", self.neo4j.generate(results[0]))
+
+    def test_exists_as_comparison_operand_stays_exists(self):
+        """A bare pattern predicate is invalid as a comparison operand, so
+        ``exists { (n)-->() } = true`` must keep the ExistsPredicate (not
+        normalize to CypherPatternPredicate)."""
+        from graphglot import ast
+        from graphglot.ast.cypher import CypherPatternPredicate
+
+        results = self._parse("MATCH (n) WHERE exists { (n)-->() } = true RETURN n")
+        self.assertEqual(len(list(results[0].find_all(ast.ExistsPredicate))), 1)
+        self.assertEqual(len(list(results[0].find_all(CypherPatternPredicate))), 0)
+
+    def test_round_trip_exists_as_comparison_operand(self):
+        """``exists { (n)-->() } = true`` must round-trip and re-parse: the
+        generator must emit the ``EXISTS {…}`` form (not the bare pattern
+        predicate, which would produce invalid ``(n)-->() = true``)."""
+        results = self._parse("MATCH (n) WHERE exists { (n)-->() } = true RETURN n")
+        generated = self.neo4j.generate(results[0])
+        self.assertIn("EXISTS", generated.upper())
+        results2 = self._parse(generated)
+        self.assertEqual(results[0], results2[0])
+
+    def test_standalone_and_comparison_operand_exists_coexist(self):
+        """A standalone exists normalizes to the bare form while a comparison
+        operand in the same query keeps ``EXISTS {…}`` — both must round-trip."""
+        query = "MATCH (n) WHERE exists { (n)-->() } AND exists { (n)<--() } = true RETURN n"
+        results = self._parse(query)
+        generated = self.neo4j.generate(results[0])
+        # standalone operand -> bare;  comparison operand -> EXISTS {…}
+        self.assertIn("(n) --> ()", generated)
+        self.assertIn("EXISTS", generated.upper())
+        self.assertEqual(results[0], self._parse(generated)[0])
+
     def test_bare_variable_not_pattern_predicate(self):
         """NOT (a) where a is a variable should NOT be a CypherPatternPredicate."""
         from graphglot.ast.cypher import CypherPatternPredicate

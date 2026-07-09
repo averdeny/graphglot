@@ -1438,6 +1438,12 @@ def pattern_predicate_resugar(tree: Expression) -> Expression:
     for node in list(tree.dfs()):
         if not isinstance(node, ast.ExistsPredicate):
             continue
+        # A bare pattern predicate is only grammatically valid as a standalone
+        # boolean primary.  As a comparison operand (or any value position) it
+        # must stay ``exists {…}``, else generation emits invalid Cypher such as
+        # ``(n)-->() = true``.  The valid slot is BooleanTest.boolean_primary.
+        if not (isinstance(node._parent, ast.BooleanTest) and node._arg_key == "boolean_primary"):
+            continue
         cpp = _match_lowered_pattern_predicate(node)
         if cpp is None:
             continue
