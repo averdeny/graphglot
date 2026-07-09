@@ -2,6 +2,39 @@
 
 <!-- version list -->
 
+## v0.14.0 (2026-07-09)
+
+### Bug Fixes
+
+- **cypher**: Round-trip exists{<bare pattern>} predicates
+  ([`2d8832d`](https://github.com/averdeny/graphglot/commit/2d8832d710b635e59c48ea4c6f164872295b2b0a))
+
+### Chores
+
+- **deps**: Bump idna and pymdown-extensions to fix audit advisories
+  ([`b7c3931`](https://github.com/averdeny/graphglot/commit/b7c393113b708f7562ab7544d84787e4e8039d58))
+
+### Features
+
+- **cypher**: Re-sugar list/string concatenation back to `+`
+  ([`f6b29db`](https://github.com/averdeny/graphglot/commit/f6b29db377876c13a64058541370171ce95a05fe))
+
+- **transformations**: Re-sugar EXISTS{<graph pattern>} to bare pattern predicate
+  ([`e281ce8`](https://github.com/averdeny/graphglot/commit/e281ce87397b4dfc20365c2fb80c79edb868a4c0))
+
+- **transformations**: Re-sugar EXISTS{FOR…} back to any/all/none
+  ([`24b41ea`](https://github.com/averdeny/graphglot/commit/24b41ea9c149107d3f7681ca27e7586586d39c69))
+
+- **transformations**: Re-sugar LEFT/RIGHT(...)=... to STARTS WITH / ENDS WITH
+  ([`c7da9fb`](https://github.com/averdeny/graphglot/commit/c7da9fb8106984445747f14eef607950f23a100a))
+
+- **transformations**: Re-sugar VALUE{FOR…COLLECT_LIST(…)} back to [x IN L | E]
+  ([`58d4336`](https://github.com/averdeny/graphglot/commit/58d4336aaa8ea2b9a649d8a6afebd132d656e317))
+
+- **transformations**: Re-sugar VALUE{MATCH…COLLECT_LIST(…)} to [(pattern) | E]
+  ([`78f89f1`](https://github.com/averdeny/graphglot/commit/78f89f124c738bc066180ec857280099d2a3fe2f))
+
+
 ## v0.13.0 (2026-05-18)
 
 ### Bug Fixes
