@@ -11,8 +11,13 @@ import unittest
 from graphglot import ast
 from graphglot.ast.cypher import CypherWithStatement
 from graphglot.dialect.base import Dialect
+from graphglot.dialect.cypher import CypherDialect
 from graphglot.dialect.neo4j import Neo4j
-from graphglot.transformations import resolve_ambiguous, with_to_next
+from graphglot.transformations import (
+    materialize_implementation_defaults,
+    resolve_ambiguous,
+    with_to_next,
+)
 from graphglot.typing import ExternalContext, GqlType, TypeAnnotator
 
 
@@ -568,6 +573,111 @@ class TestCypherWithOwnsWhere(unittest.TestCase):
             base_fn,
             "Cypher should not override FilterStatement — "
             "the default GQL generator handles FILTER WHERE correctly",
+        )
+
+
+class TestFilterFoldsIntoWith(unittest.TestCase):
+    """GQL ``NEXT FILTER <cond>`` must fold onto the lowered ``WITH`` as ``WHERE``.
+
+    A GQL ``FILTER`` lowers the ``NEXT`` boundary to ``WITH`` correctly, but the
+    adjacent filter must fold into that ``WITH`` as a ``WHERE`` — emitting a
+    literal ``FILTER`` clause is invalid Cypher.  Covers both the bare
+    (``FILTER <cond>``) and explicit (``FILTER WHERE <cond>``) forms, filters on
+    either side of the projection, and the shadowing guard that falls back to a
+    scope-preserving ``WITH * WHERE`` when a projection re-aliases a filtered var.
+
+    Targets the abstract :class:`CypherDialect` (generic openCypher, e.g.
+    PuppyGraph), which lowers ``NEXT`` → ``WITH`` via ``next_to_with``.  Neo4j
+    accepts ``NEXT`` natively and never runs the fold, so it can't reproduce.
+    """
+
+    def setUp(self):
+        self.read = Dialect.get_or_raise("fullgql")
+        self.write = CypherDialect()
+
+    def _transpile(self, gql: str) -> str:
+        validated = self.read.validate(gql)
+        self.assertTrue(validated.success, validated.error)
+        exprs = self.read.transform(validated.expressions)
+        for e in exprs:
+            materialize_implementation_defaults(e, source=self.read, target=self.write)
+        return "\n".join(self.write.generate(e, copy=False) for e in exprs)
+
+    _GQL = (
+        "MATCH (c:Customer)-[:made_transaction]->(t:Transaction) "
+        "RETURN c.first_name AS name, count(t) AS purchases "
+        "NEXT FILTER purchases > 50 RETURN name, purchases"
+    )
+
+    def test_bare_filter_folds_to_where(self):
+        """``NEXT FILTER purchases > 50`` → ``WITH … WHERE purchases > 50``."""
+        out = self._transpile(self._GQL)
+        self.assertEqual(
+            out,
+            "MATCH (c :Customer) -[:made_transaction]-> (t :Transaction) "
+            "WITH c.first_name AS name, COUNT(t) AS purchases WHERE purchases > 50 "
+            "RETURN name, purchases",
+        )
+
+    def test_explicit_filter_where_still_folds(self):
+        """Control: ``FILTER WHERE purchases > 50`` keeps folding to ``WHERE``."""
+        out = self._transpile(self._GQL.replace("FILTER purchases", "FILTER WHERE purchases"))
+        self.assertIn("WHERE purchases > 50", out)
+        self.assertNotIn("FILTER", out)
+
+    def test_prefilter_folds_into_following_with(self):
+        """``FILTER`` before a projection folds onto that ``WITH`` as ``WHERE``.
+
+        ``WITH … WHERE`` sees the incoming (pre-projection) scope in Cypher, so
+        the filter's reference to a dropped variable stays valid.
+        """
+        out = self._transpile(
+            "MATCH (n:P) FILTER n.age > 25 RETURN n.name AS name NEXT RETURN name"
+        )
+        self.assertEqual(out, "MATCH (n :P) WITH n.name AS name WHERE n.age > 25 RETURN name")
+
+    def test_prefilter_rebinding_projection_uses_star_with(self):
+        """A projection that re-aliases a filtered var must not fold.
+
+        ``FILTER n.age > 25`` before ``RETURN n.name AS n`` would fold to
+        ``WITH n.name AS n WHERE n.age > 25``, binding ``n`` to the projected
+        string (runtime type error).  Emit a scope-preserving ``WITH * WHERE``
+        before the projection instead.
+        """
+        out = self._transpile("MATCH (n:P) FILTER n.age > 25 RETURN n.name AS n NEXT RETURN n")
+        self.assertEqual(
+            out,
+            "MATCH (n :P) WITH * WHERE n.age > 25 WITH n.name AS n RETURN n",
+        )
+        self.assertNotIn("FILTER", out)
+
+    def test_explicit_prefilter_rebinding_projection_uses_star_with(self):
+        """The shadow guard applies to the explicit ``FILTER WHERE`` form too."""
+        out = self._transpile(
+            "MATCH (n:P) FILTER WHERE n.age > 25 RETURN n.name AS n NEXT RETURN n"
+        )
+        self.assertEqual(
+            out,
+            "MATCH (n :P) WITH * WHERE n.age > 25 WITH n.name AS n RETURN n",
+        )
+
+    def test_prefilter_passthrough_alias_still_folds(self):
+        """A same-name passthrough (``n AS n``) does not rebind, so it folds."""
+        out = self._transpile("MATCH (n:P) FILTER n.age > 25 RETURN n AS n NEXT RETURN n")
+        self.assertEqual(out, "MATCH (n :P) WITH n AS n WHERE n.age > 25 RETURN n")
+
+    def test_prefilter_function_rebind_uses_star_with(self):
+        """A non-property rebind (``upper(n.name) AS n``) also triggers the guard.
+
+        Guards the passthrough allow-list: any transforming node (here a
+        function call), not just a property access, must count as a rebind.
+        """
+        out = self._transpile(
+            "MATCH (n:P) FILTER n.age > 25 RETURN upper(n.name) AS n NEXT RETURN n"
+        )
+        self.assertEqual(
+            out,
+            "MATCH (n :P) WITH * WHERE n.age > 25 WITH UPPER(n.name) AS n RETURN n",
         )
 
 

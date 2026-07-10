@@ -191,13 +191,12 @@ def _merge_with_and_filter(
             isinstance(cur, CypherWithStatement)
             and cur.where_clause is None
             and isinstance(nxt, ast.FilterStatement)
-            and isinstance(nxt.filter_statement, ast.WhereClause)
         ):
             after.append(
                 CypherWithStatement._construct(
                     return_statement_body=cur.return_statement_body,
                     order_by_and_page_statement=cur.order_by_and_page_statement,
-                    where_clause=nxt.filter_statement,
+                    where_clause=_filter_where(nxt),
                 )
             )
             i += 2
@@ -213,17 +212,24 @@ def _merge_with_and_filter(
         nxt = after[i + 1] if i + 1 < len(after) else None
         if (
             isinstance(cur, ast.FilterStatement)
-            and isinstance(cur.filter_statement, ast.WhereClause)
             and isinstance(nxt, CypherWithStatement)
             and nxt.where_clause is None
         ):
-            before.append(
-                CypherWithStatement._construct(
-                    return_statement_body=nxt.return_statement_body,
-                    order_by_and_page_statement=nxt.order_by_and_page_statement,
-                    where_clause=cur.filter_statement,
+            where = _filter_where(cur)
+            if _projection_rebinds_where_var(nxt, where):
+                # The projection re-aliases a variable the filter reads; folding
+                # would bind the WHERE to the projected value.  Keep the filter
+                # separate as a scope-preserving ``WITH * WHERE`` before it.
+                before.append(_where_to_star_with(where))
+                before.append(nxt)
+            else:
+                before.append(
+                    CypherWithStatement._construct(
+                        return_statement_body=nxt.return_statement_body,
+                        order_by_and_page_statement=nxt.order_by_and_page_statement,
+                        where_clause=where,
+                    )
                 )
-            )
             i += 2
             continue
         before.append(cur)
@@ -487,6 +493,26 @@ def _has_aggregation(stmt: CypherWithStatement) -> bool:
     )
 
 
+def _filter_where(fs: ast.FilterStatement) -> ast.WhereClause:
+    """Return the ``WhereClause`` a ``FilterStatement`` carries.
+
+    Inverse-side companion to :func:`_make_filter_stmt`.  ``FilterStatement``
+    holds either a ``WhereClause`` (``FILTER WHERE <cond>``) or a bare
+    ``SearchCondition`` (``FILTER <cond>``); the latter is wrapped so a bare
+    condition folds onto a ``CypherWithStatement`` as a ``WHERE`` (a literal
+    ``FILTER`` clause is not valid Cypher).  Span tokens are carried over.
+    """
+    inner = fs.filter_statement
+    if isinstance(inner, ast.WhereClause):
+        return inner
+    where = ast.WhereClause._construct(search_condition=inner)
+    if getattr(inner, "_start_token", None) is not None:
+        where.__dict__["_start_token"] = inner._start_token
+    if getattr(inner, "_end_token", None) is not None:
+        where.__dict__["_end_token"] = inner._end_token
+    return where
+
+
 def _make_filter_stmt(where: ast.WhereClause) -> ast.FilterStatement:
     """Build a FilterStatement from a WhereClause, preserving span tokens."""
     fs = ast.FilterStatement._construct(filter_statement=where)
@@ -538,6 +564,78 @@ def _inline_aliases(
             replacement = alias_map[name].deep_copy()
             _replace_in_parent(node, replacement)
     return where_copy
+
+
+# The wrapper node types the parser emits around a bare variable reference
+# (``ArithmeticValueExpression`` → … → ``BindingVariableReference``).  A
+# projection item made of only these plus one matching reference is a
+# passthrough (``x AS x``); anything else (property access, function, operator)
+# rebinds the name to a different value.
+_PASSTHROUGH_WRAPPER_TYPES = (
+    ast.ArithmeticValueExpression,
+    ast.ArithmeticTerm,
+    ast.ArithmeticFactor,
+    ast.BindingVariableReference,
+    ast.Identifier,
+)
+
+
+def _alias_is_passthrough(source: Expression, name: str) -> bool:
+    """True if ``<source> AS <name>`` just passes *name* through unchanged.
+
+    ``name AS name`` is a passthrough; ``name.p AS name`` / ``f(name) AS name``
+    rebind *name* to a different value.
+    """
+    bvrs = [n for n in source.dfs() if isinstance(n, ast.BindingVariableReference)]
+    if len(bvrs) != 1 or bvrs[0].binding_variable.name != name:
+        return False
+    return all(isinstance(n, _PASSTHROUGH_WRAPPER_TYPES) for n in source.dfs())
+
+
+def _projection_rebinds_where_var(
+    with_stmt: CypherWithStatement,
+    where: ast.WhereClause,
+) -> bool:
+    """True if folding *where* into *with_stmt* would rebind a filtered variable.
+
+    Guards the pre-projection filter fold (Pass 2 of
+    :func:`_merge_with_and_filter`): a GQL ``FILTER <cond>`` that runs *before*
+    a projection which re-aliases one of the names ``<cond>`` reads — e.g.
+    ``FILTER n.age > 25`` before ``WITH n.name AS n``.  A Cypher ``WITH … WHERE``
+    evaluates its WHERE against the *projected* scope, so the naive fold
+    (``WITH n.name AS n WHERE n.age > 25``) would bind ``n`` to the projected
+    value instead of the incoming node.  When this returns True the caller emits
+    a scope-preserving ``WITH * WHERE`` instead (see :func:`_where_to_star_with`).
+    """
+    _, alias_map = _analyze_projection(with_stmt)
+    if not alias_map:
+        return False
+    free = _free_where_names(where)
+    return any(
+        name in free and not _alias_is_passthrough(source, name)
+        for name, source in alias_map.items()
+    )
+
+
+def _where_to_star_with(where: ast.WhereClause) -> CypherWithStatement:
+    """Build ``WITH * WHERE <cond>`` — a scope-preserving standalone filter.
+
+    ``WITH *`` keeps the incoming binding table intact, so the WHERE binds to
+    the same variables the GQL ``FILTER`` referenced.  Used when a
+    pre-projection filter cannot be folded into the following projection
+    without rebinding (see :func:`_projection_rebinds_where_var`).
+    """
+    star_inner = ast.ReturnStatementBody._SetQuantifierAsteriskGroupByClause._construct(
+        set_quantifier=None,
+        asterisk=ast.Asterisk._construct(),
+        group_by_clause=None,
+    )
+    star_body = ast.ReturnStatementBody._construct(return_statement_body=star_inner)
+    return CypherWithStatement._construct(
+        return_statement_body=star_body,
+        order_by_and_page_statement=None,
+        where_clause=where,
+    )
 
 
 def _strip_where(stmt: CypherWithStatement) -> CypherWithStatement:
