@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.14.1 (2026-07-10)
+
+### Bug Fixes
+
+- **cypher**: Fold bare NEXT FILTER into WITH as WHERE
+  ([`c93616c`](https://github.com/averdeny/graphglot/commit/c93616c2f097811bfb6e70c27ffec3d20493d500))
+
+
 ## v0.14.0 (2026-07-09)
 
 ### Bug Fixes
