@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.14.2 (2026-08-07)
+
+### Bug Fixes
+
+- Bump click, pymdown-extensions for security audit
+  ([`7d5a233`](https://github.com/averdeny/graphglot/commit/7d5a233417868c4536a8e4e952d2abb7034f49da))
+
+
 ## v0.14.1 (2026-07-10)
 
 ### Bug Fixes
