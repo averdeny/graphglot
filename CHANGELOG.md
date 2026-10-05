@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.14.3 (2026-10-05)
+
+### Bug Fixes
+
+- Bump mkdocs-material, urllib3, virtualenv for security audit
+  ([`ac4966c`](https://github.com/averdeny/graphglot/commit/ac4966c9345d270f8049ebe426cd4deb22f6d4e0))
+
+
 ## v0.14.2 (2026-08-07)
 
 ### Bug Fixes
